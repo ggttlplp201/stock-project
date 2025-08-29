@@ -1,11 +1,12 @@
+// stocks/api/chat.js  —— 转发到 OpenAI，并把错误透出
 export default async function handler(req, res) {
-  // --- CORS ---
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS, GET");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-proxy-key");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // 健康检查：GET 直接返回
+  // 健康检查（GET 可用，但不会影响 POST）
   if (req.method === "GET") {
     return res.status(200).json({
       ok: true,
@@ -24,7 +25,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "OPENAI_API_KEY is not set" });
     }
 
-    // 柔性解析 body（部分场景 req.body 为空）
+    // 兼容某些场景 body 为空：手动解析
     const body =
       req.body ??
       await new Promise((resolve) => {
@@ -41,7 +42,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Missing 'messages' array in request body" });
     }
 
-    // 可选：简单鉴权（如果你在 Vercel 配了 PROXY_ACCESS_KEY）
+    // 可选：如果你在 Vercel 配了 PROXY_ACCESS_KEY，就校验一下
     const REQUIRED_KEY = process.env.PROXY_ACCESS_KEY;
     if (REQUIRED_KEY) {
       const clientKey = req.headers["x-proxy-key"];
@@ -50,7 +51,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 转发
+    // 转发给 OpenAI
     const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -65,7 +66,6 @@ export default async function handler(req, res) {
     try { payload = JSON.parse(upstreamText); } catch { payload = { raw: upstreamText }; }
 
     if (!upstream.ok) {
-      // 把上游错误直接抛回去，便于你在 Network/Logs 里看到具体原因
       return res.status(upstream.status).json({
         error: "Upstream OpenAI error",
         status: upstream.status,
