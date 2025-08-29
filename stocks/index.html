@@ -11,14 +11,12 @@
     h1 { text-align:center; color:var(--txt); margin:0 0 .25rem; }
     .sub { text-align:center; color:var(--muted); margin-bottom:1.25rem; }
 
-    /* Tabs */
     .tabs { display:flex; gap:8px; justify-content:center; margin: 1rem 0 1.25rem; }
     .tab-btn { padding:.6rem 1rem; border:1px solid #cfd6e4; background:#e9eef6; color:#24324a; border-radius:8px; cursor:pointer; }
     .tab-btn.active { background:var(--brand); color:#fff; border-color:var(--brand); }
 
-    /* AI picks */
     .rec-wrap { margin-bottom: 1.25rem; }
-    .rec-header { display:flex; justify-content:space-between; margin-bottom:.5rem; align-items:center; }
+    .rec-header { display:flex; justify-content:space-between; margin-bottom:.5rem; }
     .rec-title { font-weight:700; }
     .rec-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:12px; }
     .rec-card { background:var(--card); border-radius:10px; padding:12px; box-shadow:0 6px 18px rgba(0,0,0,.08); cursor:pointer; transition:.2s; }
@@ -26,19 +24,16 @@
     .rec-symbol { font-weight:700; }
     .rec-reason { margin-top:8px; font-size:.95rem; color:#333; }
 
-    /* Forms */
     .form-row { display:flex; gap:10px; margin-bottom:1rem; justify-content:center; flex-wrap:wrap; }
     input, select { padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:8px; }
     .btn { padding:10px 16px; font-size:1rem; border:0; border-radius:8px; background:var(--brand); color:#fff; cursor:pointer; }
     .btn:hover { background:var(--brand-d); }
     .hint { text-align:center; color:var(--muted); margin-bottom: 1rem; }
 
-    /* Cards */
     .card { background:var(--card); padding:1.2rem; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.08); margin-bottom:1.25rem; }
     .card h2 { margin:0 0 .5rem; }
     .error { color:#c62828; font-weight:700; }
 
-    /* Chart */
     .tv-wrap { background:var(--card); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.08); padding:1rem; }
     .tv-container { width:100%; height:600px; }
 
@@ -49,7 +44,7 @@
   <div class="container">
     <h1>📈 Stock & Crypto Viewer</h1>
 
-    <!-- Tabs -->
+
     <div class="tabs">
       <button id="tab-stocks" class="tab-btn active">Stocks</button>
       <button id="tab-crypto" class="tab-btn">Crypto</button>
@@ -59,16 +54,17 @@
     <section id="panel-stocks">
       <div class="rec-wrap">
         <div class="rec-header">
-          <div class="rec-title">AI Picks</div>
-          <div id="rec-status" class="rec-hint">Generating picks…</div>
+          <div class="rec-title">AI 推荐股票</div>
+          <div id="rec-status" class="rec-hint">正在生成推荐…</div>
         </div>
         <div id="rec-grid" class="rec-grid"></div>
       </div>
 
       <form id="stock-form" class="form-row">
-        <input type="text" id="symbol" required placeholder="e.g., AAPL or TSLA" />
+        <input type="text" id="symbol" required placeholder="e.g. AAPL 或 TSLA" />
         <button class="btn" type="submit">Get Quote</button>
       </form>
+
 
       <div id="result" class="card"></div>
     </section>
@@ -76,19 +72,20 @@
     <!-- Crypto -->
     <section id="panel-crypto" class="hidden">
       <form id="crypto-form" class="form-row">
-        <input type="text" id="cryptoSymbol" required placeholder="Symbol (e.g., BTC, ETH)" />
+        <input type="text" id="cryptoSymbol" required placeholder="币种（如：BTC、ETH）" />
         <select id="cryptoMarket">
           <option value="USD" selected>USD</option>
           <option value="USDT">USDT</option>
           <option value="EUR">EUR</option>
+
         </select>
         <select id="cryptoExchange">
-          <option value="COINBASE" selected>Coinbase (USD)</option>
-          <option value="BINANCE">Binance (USDT)</option>
+          <option value="COINBASE" selected>Coinbase（USD）</option>
+          <option value="BINANCE">Binance（USDT）</option>
         </select>
         <button class="btn" type="submit">Get Crypto</button>
       </form>
-      <div class="hint">Realtime rate from Alpha Vantage; chart uses selected exchange (Coinbase = USD, Binance = USDT).</div>
+      <div class="hint">Rate from: Alpha Vantage; Graph from:（Coinbase=USD、Binance=USDT）</div>
 
       <div id="crypto-result" class="card"></div>
     </section>
@@ -104,54 +101,57 @@
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script>
     /* ========= Config ========= */
-    const AV_API_KEY   = 'MXW8J9FLMSVW8FAW';    // Alpha Vantage
-    const PROXY_URL    = "/api/chat";           // Your OpenAI proxy endpoint
-    const OPENAI_MODEL = "gpt-4o-mini";
+    const AV_API_KEY = 'MXW8J9FLMSVW8FAW';        
+    const PROXY_URL = "/api/chat";   
+    const OPENAI_MODEL = "gpt-4o-mini"; 
 
-    /* ========= Retry helper for AI proxy ========= */
-    function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-    async function postChatWithRetry(body, { retries = 3, baseDelay = 800 } = {}) {
-      for (let i = 0; i <= retries; i++) {
-        const resp = await fetch(PROXY_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
-        });
-        const json = await resp.json().catch(() => ({}));
 
-        // success
-        if (resp.ok && !json.error) return json;
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-        // rate-limited → backoff & retry
-        if (resp.status === 429 && i < retries) {
-          const retryAfter =
-            Number(resp.headers.get("retry-after")) ||
-            Number(json.retryAfter) || 0;
-          const delay = retryAfter ? retryAfter * 1000 : baseDelay * Math.pow(2, i);
-          console.warn(`429 rate limit, retry in ${delay}ms (attempt ${i+1}/${retries})`);
-          await sleep(delay);
-          continue;
-        }
+async function postChatWithRetry(body, { retries = 3, baseDelay = 800 } = {}) {
+  for (let i = 0; i <= retries; i++) {
+    const resp = await fetch(PROXY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const json = await resp.json().catch(() => ({}));
 
-        // other errors → throw
-        throw { resp, json };
-      }
-      throw new Error("Exceeded retries");
+    // 成功
+    if (resp.ok && !json.error) return json;
+
+    // 命中限流 → 退避重试
+    if (resp.status === 429 && i < retries) {
+      const retryAfter =
+        Number(resp.headers.get("retry-after")) ||
+        Number(json.retryAfter) ||
+        0;
+      const delay = retryAfter ? retryAfter * 1000 : baseDelay * Math.pow(2, i);
+      console.warn(`429 rate limit, retry in ${delay}ms (attempt ${i+1}/${retries})`);
+      await sleep(delay);
+      continue;
     }
 
+    // 其他错误，直接抛出
+    throw { resp, json };
+  }
+  throw new Error("Exceeded retries");
+}
+
+
     /* ========= DOM ========= */
-    const tabStocks   = document.getElementById('tab-stocks');
-    const tabCrypto   = document.getElementById('tab-crypto');
+    const tabStocks = document.getElementById('tab-stocks');
+    const tabCrypto = document.getElementById('tab-crypto');
     const panelStocks = document.getElementById('panel-stocks');
     const panelCrypto = document.getElementById('panel-crypto');
-    const chartTitle  = document.getElementById('chart-title');
+    const chartTitle = document.getElementById('chart-title');
 
     const stockForm = document.getElementById('stock-form');
     const resultDiv = document.getElementById('result');
-    const recGrid   = document.getElementById('rec-grid');
+    const recGrid = document.getElementById('rec-grid');
     const recStatus = document.getElementById('rec-status');
 
-    const cryptoForm   = document.getElementById('crypto-form');
+    const cryptoForm = document.getElementById('crypto-form');
     const cryptoResult = document.getElementById('crypto-result');
 
     /* ========= Tabs ========= */
@@ -172,7 +172,7 @@
       const container = document.getElementById('tv_chart_container');
       container.innerHTML = '';
       if (typeof TradingView === 'undefined' || !TradingView.widget) {
-        container.innerHTML = '<div class="error">TradingView script failed to load.</div>';
+        container.innerHTML = '<div class="error">TradingView 脚本未加载成功。</div>';
         return;
       }
       new TradingView.widget({
@@ -190,7 +190,7 @@
       });
     }
 
-    /* ========= Alpha Vantage: Stocks ========= */
+    /* ========= Alpha Vantage：Stocks ========= */
     async function fetchQuote(symbol) {
       const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${AV_API_KEY}`;
       const res = await fetch(url);
@@ -209,7 +209,7 @@
       `;
     }
 
-    /* ========= Alpha Vantage: Crypto ========= */
+    /* ========= Alpha Vantage：Crypto ========= */
     async function fetchCryptoExchangeRate(base, quote){
       const url = `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(base)}&to_currency=${encodeURIComponent(quote)}&apikey=${AV_API_KEY}`;
       const res = await fetch(url);
@@ -222,42 +222,21 @@
       const data = await res.json();
       return data && data['Time Series (Digital Currency Daily)'] ? data['Time Series (Digital Currency Daily)'] : null;
     }
-
-    // Robust OHLC picker for AV Digital Currency Daily
-    function avPickOHLC(dayObj, preferQuote = "USD") {
-      const keys = Object.keys(dayObj || {});
-      const pick = (part) => {
-        const lc = part.toLowerCase();
-        let key =
-          keys.find(k => k.toLowerCase().includes(` ${lc} `) && k.endsWith(`(${preferQuote})`)) ||
-          keys.find(k => k.toLowerCase().includes(` ${lc} `) && k.endsWith(`(USD)`)) ||
-          keys.find(k => k.toLowerCase().includes(` ${lc} `));
-        return key ? dayObj[key] : undefined;
-      };
-      return {
-        open:  pick("open"),
-        high:  pick("high"),
-        low:   pick("low"),
-        close: pick("close"),
-      };
-    }
-
     function renderCryptoQuote(base, quote, exRate, dailySeries){
       let ohlcHtml = '';
       if (dailySeries){
-        const dates = Object.keys(dailySeries).sort().reverse(); // latest first
+        const dates = Object.keys(dailySeries).sort().reverse();
         if (dates.length){
           const d0 = dailySeries[dates[0]];
-          // AV often only has USD series; prefer USD when quote is USDT
-          const prefer = (quote === 'USDT') ? 'USD' : quote;
-          const { open, high, low, close } = avPickOHLC(d0, prefer);
-          if (open !== undefined) {
-            ohlcHtml = `<p><strong>Daily (last):</strong> O ${open} • H ${high} • L ${low} • C ${close} (${dates[0]})</p>`;
-          }
+          const open = d0['1a. open (USD)'] || d0['1b. open (USD)'] || d0['1a. open ('+quote+')'];
+          const high = d0['2a. high (USD)'] || d0['2b. high (USD)'] || d0['2a. high ('+quote+')'];
+          const low  = d0['3a. low (USD)']  || d0['3b. low (USD)']  || d0['3a. low ('+quote+')'];
+          const close= d0['4a. close (USD)']|| d0['4b. close (USD)']|| d0['4a. close ('+quote+')'];
+          ohlcHtml = `<p><strong>Daily (last):</strong> O ${open} • H ${high} • L ${low} • C ${close} (${dates[0]})</p>`;
         }
       }
-      const p   = exRate ? exRate['5. Exchange Rate'] : '—';
-      const t   = exRate ? exRate['6. Last Refreshed'] : '—';
+      const p = exRate ? exRate['5. Exchange Rate'] : '—';
+      const t = exRate ? exRate['6. Last Refreshed'] : '—';
       const bid = exRate ? exRate['8. Bid Price'] : '—';
       const ask = exRate ? exRate['9. Ask Price'] : '—';
 
@@ -265,67 +244,70 @@
         <h2>${base}/${quote}</h2>
         <p><strong>Real-time:</strong> ${p} (${t})</p>
         <p><strong>Bid/Ask:</strong> ${bid} / ${ask}</p>
-        ${ohlcHtml || `<p class="hint">No daily OHLC from Alpha Vantage for ${base}/${quote}.</p>`}
+        ${ohlcHtml}
       `;
     }
 
-    /* ========= Stocks: AI picks via proxy ========= */
+    /* ========= Stocks：AI 推荐（通过代理） ========= */
     const UNIVERSE = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","V","MA","JPM","HD","UNH"];
+// --- 去重 + 本地缓存（6h） ---
+let aiReqInFlight = false;
+const REC_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小时
 
-    // de-dupe + local cache (6h)
-    let aiReqInFlight = false;
-    const REC_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
-    function loadCachedRecs(key){
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw) return null;
-        const { ts, data } = JSON.parse(raw);
-        if (Date.now() - ts < REC_CACHE_TTL) return data;
-      } catch {}
-      return null;
-    }
-    function saveCachedRecs(key, data){
-      try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch {}
-    }
+function loadCachedRecs(key){
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    if (Date.now() - ts < REC_CACHE_TTL) return data;
+  } catch {}
+  return null;
+}
+function saveCachedRecs(key, data){
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch {}
+}
 
     async function getAIRecommendations(n = 4){
-      if (aiReqInFlight) return [];
-      aiReqInFlight = true;
+  // 去重：已有请求在飞就不再并发触发
+  if (aiReqInFlight) return [];
+  aiReqInFlight = true;
 
-      const CACHE_KEY = `ai_rec_${UNIVERSE.join("-")}_${n}`;
-      const cached = loadCachedRecs(CACHE_KEY);
-      if (cached) {
-        aiReqInFlight = false;
-        return cached;
-      }
+  const CACHE_KEY = `ai_rec_${UNIVERSE.join("-")}_${n}`;
+  const cached = loadCachedRecs(CACHE_KEY);
+  if (cached) {
+    aiReqInFlight = false;
+    return cached;
+  }
 
-      const prompt = `
-You are a stock screening assistant. From the following universe, pick ${n} tickers worth watching and give ONE short reason for each.
-Return STRICT JSON only, no extra text or formatting.
-Format: [{"symbol":"AAPL","reason":"New product cycle expected to drive growth"}]
-Universe: ${UNIVERSE.join(", ")}
+  const prompt = `
+你是股票筛选助手。从以下股票池中挑选${n}只值得关注的股票，并给出一句简短理由。
+只输出严格的 JSON 数组，不要任何额外文字或换行。
+格式:[{"symbol":"AAPL","reason":"新品发布预期带动增长"}]
+股票池:${UNIVERSE.join(", ")}
 `.trim();
 
-      try {
-        const json = await postChatWithRetry({
-          model: OPENAI_MODEL,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.7
-        }, { retries: 3, baseDelay: 800 });
+  try {
+    const json = await postChatWithRetry({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7
+    }, { retries: 3, baseDelay: 800 });
 
-        const list = JSON.parse(json?.choices?.[0]?.message?.content || "[]");
-        if (Array.isArray(list) && list.length) saveCachedRecs(CACHE_KEY, list);
-        return list;
-      } catch (e) {
-        console.error("AI proxy error:", e?.json || e);
-        recStatus.textContent = `AI error: ${
-          e?.json?.error || e?.json?.payload?.error?.message || e?.resp?.status || "unknown"
-        }`;
-        return [];
-      } finally {
-        aiReqInFlight = false;
-      }
-    }
+    const list = JSON.parse(json?.choices?.[0]?.message?.content || "[]");
+    if (Array.isArray(list) && list.length) saveCachedRecs(CACHE_KEY, list);
+    return list;
+  } catch (e) {
+    console.error("AI proxy error:", e?.json || e);
+    // 把错误显示在页面状态栏，方便你观察
+    recStatus.textContent = `AI错误：${
+      e?.json?.error || e?.json?.payload?.error?.message || e?.resp?.status || "unknown"
+    }`;
+    return [];
+  } finally {
+    aiReqInFlight = false;
+  }
+}
+
 
     function renderRecommendations(list){
       recGrid.innerHTML="";
@@ -348,22 +330,20 @@ Universe: ${UNIVERSE.join(", ")}
 
     /* ========= Init ========= */
     document.addEventListener('DOMContentLoaded', async ()=>{
-      // default: AAPL chart
       chartTitle.textContent = 'AAPL • Stock Chart';
       renderTradingView("AAPL");
 
-      // AI picks
       try{
         let recs = await getAIRecommendations(4);
         if(recs.length){
           renderRecommendations(recs);
-          recStatus.textContent="Loaded AI picks";
+          recStatus.textContent="已加载推荐（AI 生成）";
         } else {
-          recStatus.textContent="Loaded fallback picks";
-          renderRecommendations(UNIVERSE.slice(0,4).map(s=>({symbol:s,reason:"High market attention"})));
+          recStatus.textContent="已加载推荐（本地兜底）";
+          renderRecommendations(UNIVERSE.slice(0,4).map(s=>({symbol:s,reason:"市场关注度高"})));
         }
       }catch{
-        recStatus.textContent="AI unavailable";
+        recStatus.textContent="AI 推荐不可用";
       }
     });
 
@@ -385,30 +365,24 @@ Universe: ${UNIVERSE.join(", ")}
 
     cryptoForm.addEventListener('submit', async (e)=>{
       e.preventDefault();
-      const base  = document.getElementById('cryptoSymbol').value.trim().toUpperCase();
-      const quote = document.getElementById('cryptoMarket').value.trim().toUpperCase();
+      const base = document.getElementById('cryptoSymbol').value.trim().toUpperCase();
+      let quote = document.getElementById('cryptoMarket').value.trim().toUpperCase();
       const exSel = document.getElementById('cryptoExchange').value;
       if(!base || !quote) return;
 
       cryptoResult.textContent = 'Loading...';
 
       try {
-        // 1) realtime rate
         const exRate = await fetchCryptoExchangeRate(base, quote);
-
-        // 2) daily series (USDT → use USD for AV)
-        const avMarket = (quote === 'USDT') ? 'USD' : quote;
-        const daily = await fetchCryptoDaily(base, avMarket);
-
+        const daily = await fetchCryptoDaily(base, quote);
         renderCryptoQuote(base, quote, exRate, daily);
 
-        // 3) TradingView symbol
         let tvSymbol = '';
         if (exSel === 'COINBASE') {
-          const q = (quote === 'USDT') ? 'USD' : quote; // Coinbase prefers USD
+          const q = (quote === 'USDT') ? 'USD' : quote;
           tvSymbol = `COINBASE:${base}${q}`;
         } else {
-          const q = (quote === 'USD') ? 'USDT' : quote; // Binance often uses USDT
+          const q = (quote === 'USD') ? 'USDT' : quote;
           tvSymbol = `BINANCE:${base}${q}`;
         }
         chartTitle.textContent = `${base}/${quote} • Crypto Chart`;
