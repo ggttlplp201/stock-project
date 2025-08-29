@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Weather</h1>
+    <input type="text" id="cityInput" placeholder="Enter city name">
+<br>
+    <button onclick="getWeather()">Get Weather</button>
+    <div style="margin-top:16px;">
+        <label class="toggle-label">
+            <input type="checkbox" id="tempToggle" onchange="toggleTemp()">
+            <span id="toggleText">Show °F</span>
+        </label>
+    </div>
+    <div id="weatherResult"></div>
+    <script>
+    let lastWeatherData = null;
+    let lastUnit = 'C';
+    let recentCities = [];
+
+    function updateRecentCities(city) {
+        city = city.trim();
+        if (!city) return;
+        // Remove if already exists, then add to front
+        recentCities = recentCities.filter(c => c.toLowerCase() !== city.toLowerCase());
+        recentCities.unshift(city);
+        if (recentCities.length > 5) recentCities = recentCities.slice(0, 5);
+        renderRecentCities();
+        // Save to localStorage
+        localStorage.setItem('recentCities', JSON.stringify(recentCities));
+    }
+
+    function renderRecentCities() {
+        let container = document.getElementById('recentCities');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'recentCities';
+            container.style.marginTop = '24px';
+            container.innerHTML = '<h3 style="margin-bottom:8px;">Recently Searched</h3><ul id="recentCitiesList" style="list-style:none;padding:0;margin:0;"></ul>';
+            document.body.insertBefore(container, document.querySelector('#weatherResult'));
+        }
+        const list = container.querySelector('#recentCitiesList');
+        list.innerHTML = '';
+        recentCities.forEach(city => {
+            const li = document.createElement('li');
+            li.style.display = 'inline-block';
+            li.style.marginRight = '12px';
+            li.style.marginBottom = '6px';
+            li.style.cursor = 'pointer';
+            li.style.padding = '6px 14px';
+            li.style.background = '#f0f4f8';
+            li.style.borderRadius = '16px';
+            li.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)';
+            li.textContent = city;
+            li.onclick = () => {
+                document.getElementById('cityInput').value = city;
+                getWeather();
+            };
+            list.appendChild(li);
+        });
+    }
+
+    async function getWeather() {
+        const apiKey = '43acf4c6a37324e7d04f9cf37962b4d0'; 
+        const city = document.getElementById('cityInput').value.trim();
+        const resultDiv = document.getElementById('weatherResult');
+        const tempToggle = document.getElementById('tempToggle');
+        if (!city) {
+            resultDiv.innerHTML = 'Please enter a city name.';
+            return;
+        }
+        resultDiv.innerHTML = 'Loading...';
+        let units = tempToggle.checked ? 'imperial' : 'metric';
+        lastUnit = tempToggle.checked ? 'F' : 'C';
+        try {
+            const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&APPID=${apiKey}&units=${units}`);
+            if (!response.ok) {
+                throw new Error('City not found');
+            }
+            const data = await response.json();
+            lastWeatherData = data;
+            updateRecentCities(city);
+            renderWeather();
+        } catch (error) {
+            resultDiv.innerHTML = 'Error: ' + error.message;
+            lastWeatherData = null;
+        }
+    }
+
+    function renderWeather() {
+        const resultDiv = document.getElementById('weatherResult');
+        if (!lastWeatherData) return;
+        const tempToggle = document.getElementById('tempToggle');
+        const unit = tempToggle.checked ? '°F' : '°C';
+        const data = lastWeatherData;
+        // Remove suggestion message based on weather
+        resultDiv.innerHTML = `
+            <h2>Weather in ${data.name}, ${data.sys.country}</h2>
+            <p><strong>Temperature:</strong> ${data.main.temp} ${unit}</p>
+            <p><strong>Weather:</strong> ${data.weather[0].description}</p>
+            <p><strong>Humidity:</strong> ${data.main.humidity}%</p>
+            <p><strong>Wind Speed:</strong> ${data.wind.speed} m/s</p>
+        `;
+    }
+    
+
+    function toggleTemp() {
+        // Re-fetch weather in the new unit
+        if (lastWeatherData) {
+            getWeather();
+        }
+        // Update toggle text
+        const tempToggle = document.getElementById('tempToggle');
+        document.getElementById('toggleText').textContent = tempToggle.checked ? 'Show °C' : 'Show °F';
+    }
+    // Set initial toggle text
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('toggleText').textContent = 'Show °F';
+        const saved = localStorage.getItem('recentCities');
+        if (saved) {
+            recentCities = JSON.parse(saved);
+            renderRecentCities();
+        }
+    });
+    </script>
+</body>
+</html>

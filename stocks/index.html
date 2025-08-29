@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Stock & Crypto Viewer</title>
+  <style>
+    :root { --bg:#f5f7fa; --card:#fff; --txt:#222; --muted:#666; --brand:#0077ff; --brand-d:#005fcc; }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:2rem; font-family:Arial, sans-serif; background:var(--bg); display:flex; justify-content:center; }
+    .container { width:100%; max-width:1100px; }
+    h1 { text-align:center; color:var(--txt); margin:0 0 .25rem; }
+    .sub { text-align:center; color:var(--muted); margin-bottom:1.25rem; }
+
+    /* Tabs */
+    .tabs { display:flex; gap:8px; justify-content:center; margin: 1rem 0 1.25rem; }
+    .tab-btn {
+      padding:.6rem 1rem; border:1px solid #cfd6e4; background:#e9eef6; color:#24324a;
+      border-radius:8px; cursor:pointer;
+    }
+    .tab-btn.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+
+    /* 推荐区（Stocks） */
+    .rec-wrap { margin-bottom: 1.25rem; }
+    .rec-header { display:flex; justify-content:space-between; margin-bottom:.5rem; }
+    .rec-title { font-weight:700; }
+    .rec-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:12px; }
+    .rec-card {
+      background:var(--card); border-radius:10px; padding:12px;
+      box-shadow:0 6px 18px rgba(0,0,0,.08); cursor:pointer; transition:.2s;
+    }
+    .rec-card:hover { transform:translateY(-2px); box-shadow:0 10px 22px rgba(0,0,0,.12); }
+    .rec-symbol { font-weight:700; }
+    .rec-reason { margin-top:8px; font-size:.95rem; color:#333; }
+
+    /* 表单通用 */
+    .form-row { display:flex; gap:10px; margin-bottom:1rem; justify-content:center; flex-wrap:wrap; }
+    input, select {
+      padding:10px; font-size:1rem; border:1px solid #ccc; border-radius:8px;
+    }
+    .btn {
+      padding:10px 16px; font-size:1rem; border:0; border-radius:8px;
+      background:var(--brand); color:#fff; cursor:pointer;
+    }
+    .btn:hover { background:var(--brand-d); }
+    .hint { text-align:center; color:var(--muted); margin-bottom: 1rem; }
+
+    /* 卡片 */
+    .card {
+      background:var(--card); padding:1.2rem; border-radius:10px;
+      box-shadow:0 6px 18px rgba(0,0,0,.08); margin-bottom:1.25rem;
+    }
+    .card h2 { margin:0 0 .5rem; }
+    .error { color:#c62828; font-weight:700; }
+
+    /* 图表 */
+    .tv-wrap { background:var(--card); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.08); padding:1rem; }
+    .tv-container { width:100%; height:600px; }
+
+    /* 区块显示/隐藏 */
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📈 Stock & Crypto Viewer</h1>
+    <p class="sub">开页即看 AI 推荐（股票） • 查询报价与图表（股票/加密）• 仅学习演示，非投资建议</p>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button id="tab-stocks" class="tab-btn active">Stocks</button>
+      <button id="tab-crypto" class="tab-btn">Crypto</button>
+    </div>
+
+    <!-- ============ Stocks 面板 ============ -->
+    <section id="panel-stocks">
+      <!-- AI 推荐 -->
+      <div class="rec-wrap">
+        <div class="rec-header">
+          <div class="rec-title">AI 推荐股票</div>
+          <div id="rec-status" class="rec-hint">正在生成推荐…</div>
+        </div>
+        <div id="rec-grid" class="rec-grid"></div>
+      </div>
+
+      <!-- 股票查询 -->
+      <form id="stock-form" class="form-row">
+        <input type="text" id="symbol" required placeholder="e.g. AAPL 或 TSLA" />
+        <button class="btn" type="submit">Get Quote</button>
+      </form>
+      <div class="hint">输入代码（<code>AAPL</code>、<code>TSLA</code> 等）。</div>
+
+      <div id="result" class="card"></div>
+    </section>
+
+    <!-- ============ Crypto 面板 ============ -->
+    <section id="panel-crypto" class="hidden">
+      <form id="crypto-form" class="form-row">
+        <input type="text" id="cryptoSymbol" required placeholder="币种（如：BTC、ETH）" />
+        <select id="cryptoMarket">
+          <option value="USD" selected>USD（美元）</option>
+          <option value="USDT">USDT（泰达）</option>
+          <option value="EUR">EUR（欧元）</option>
+          <option value="JPY">JPY（日元）</option>
+        </select>
+        <select id="cryptoExchange">
+          <option value="COINBASE" selected>Coinbase（USD）</option>
+          <option value="BINANCE">Binance（USDT）</option>
+        </select>
+        <button class="btn" type="submit">Get Crypto</button>
+      </form>
+      <div class="hint">实时汇率来自 Alpha Vantage；图表基于所选交易所（Coinbase=USD、Binance=USDT）。</div>
+
+      <div id="crypto-result" class="card"></div>
+    </section>
+
+    <!-- 统一图表区（股票/加密共用） -->
+    <div class="tv-wrap">
+      <h2 id="chart-title" style="margin:0 0 .5rem;">Interactive Chart</h2>
+      <div id="tv_chart_container" class="tv-container"></div>
+    </div>
+  </div>
+
+  <!-- TradingView -->
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <script>
+    /* ========= API Keys ========= */
+    const AV_API_KEY = 'MXW8J9FLMSVW8FAW'; // Alpha Vantage
+    const OPENAI_API_KEY = 'YOUR_OPENAI_API_KEY'; // 建议后端代理；演示可替换
+    const OPENAI_MODEL = 'gpt-4o-mini';
+
+    /* ========= DOM ========= */
+    const tabStocks = document.getElementById('tab-stocks');
+    const tabCrypto = document.getElementById('tab-crypto');
+    const panelStocks = document.getElementById('panel-stocks');
+    const panelCrypto = document.getElementById('panel-crypto');
+    const chartTitle = document.getElementById('chart-title');
+
+    const stockForm = document.getElementById('stock-form');
+    const resultDiv = document.getElementById('result');
+    const recGrid = document.getElementById('rec-grid');
+    const recStatus = document.getElementById('rec-status');
+
+    const cryptoForm = document.getElementById('crypto-form');
+    const cryptoResult = document.getElementById('crypto-result');
+
+    /* ========= Tabs ========= */
+    function setActiveTab(which){
+      if(which==='stocks'){
+        tabStocks.classList.add('active'); tabCrypto.classList.remove('active');
+        panelStocks.classList.remove('hidden'); panelCrypto.classList.add('hidden');
+      } else {
+        tabCrypto.classList.add('active'); tabStocks.classList.remove('active');
+        panelCrypto.classList.remove('hidden'); panelStocks.classList.add('hidden');
+      }
+    }
+    tabStocks.addEventListener('click', ()=>setActiveTab('stocks'));
+    tabCrypto.addEventListener('click', ()=>setActiveTab('crypto'));
+
+    /* ========= TradingView ========= */
+    function renderTradingView(symbolLike){
+      const container = document.getElementById('tv_chart_container');
+      container.innerHTML = '';
+      if (typeof TradingView === 'undefined' || !TradingView.widget) {
+        container.innerHTML = '<div class="error">TradingView 脚本未加载成功。</div>';
+        return;
+      }
+      new TradingView.widget({
+        autosize: true,
+        symbol: symbolLike,
+        interval: "D",
+        timezone: "Etc/UTC",
+        theme: "light",
+        style: "1",
+        locale: "en",
+        toolbar_bg: "#f1f3f6",
+        enable_publishing: false,
+        allow_symbol_change: true,
+        container_id: "tv_chart_container"
+      });
+    }
+
+    /* ========= Alpha Vantage：Stocks ========= */
+    async function fetchQuote(symbol) {
+      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${AV_API_KEY}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      return data && data['Global Quote'] && data['Global Quote']['01. symbol'] ? data['Global Quote'] : null;
+    }
+    function renderQuote(quote) {
+      resultDiv.innerHTML = `
+        <h2>${quote['01. symbol']}</h2>
+        <p><strong>Price:</strong> $${quote['05. price']}</p>
+        <p><strong>Open:</strong> $${quote['02. open']}</p>
+        <p><strong>High:</strong> $${quote['03. high']}</p>
+        <p><strong>Low:</strong> $${quote['04. low']}</p>
+        <p><strong>Prev Close:</strong> $${quote['08. previous close']}</p>
+        <p><strong>Change:</strong> ${quote['09. change']} (${quote['10. change percent']})</p>
+      `;
+    }
+
+    /* ========= Alpha Vantage：Crypto =========
+       1) 实时：CURRENCY_EXCHANGE_RATE?from=BTC&to=USD
+       2) 日线：DIGITAL_CURRENCY_DAILY?symbol=BTC&market=USD
+    */
+    async function fetchCryptoExchangeRate(base, quote){
+      const url = `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(base)}&to_currency=${encodeURIComponent(quote)}&apikey=${AV_API_KEY}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      return data && data['Realtime Currency Exchange Rate'] ? data['Realtime Currency Exchange Rate'] : null;
+    }
+    async function fetchCryptoDaily(base, quote){
+      const url = `https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_DAILY&symbol=${encodeURIComponent(base)}&market=${encodeURIComponent(quote)}&apikey=${AV_API_KEY}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      return data && data['Time Series (Digital Currency Daily)'] ? data['Time Series (Digital Currency Daily)'] : null;
+    }
+    function renderCryptoQuote(base, quote, exRate, dailySeries){
+      let ohlcHtml = '';
+      if (dailySeries){
+        const dates = Object.keys(dailySeries).sort().reverse(); // 最新在前
+        if (dates.length){
+          const d0 = dailySeries[dates[0]];
+          const open = d0['1a. open (USD)'] || d0['1b. open (USD)'] || d0['1a. open ('+quote+')'];
+          const high = d0['2a. high (USD)'] || d0['2b. high (USD)'] || d0['2a. high ('+quote+')'];
+          const low  = d0['3a. low (USD)']  || d0['3b. low (USD)']  || d0['3a. low ('+quote+')'];
+          const close= d0['4a. close (USD)']|| d0['4b. close (USD)']|| d0['4a. close ('+quote+')'];
+          ohlcHtml = `
+            <p><strong>Daily (last):</strong> O ${open} • H ${high} • L ${low} • C ${close} (${dates[0]})</p>
+          `;
+        }
+      }
+      const p = exRate ? exRate['5. Exchange Rate'] : '—';
+      const t = exRate ? exRate['6. Last Refreshed'] : '—';
+      const bid = exRate ? exRate['8. Bid Price'] : '—';
+      const ask = exRate ? exRate['9. Ask Price'] : '—';
+
+      cryptoResult.innerHTML = `
+        <h2>${base}/${quote}</h2>
+        <p><strong>Real-time:</strong> ${p} (${t})</p>
+        <p><strong>Bid/Ask:</strong> ${bid} / ${ask}</p>
+        ${ohlcHtml}
+      `;
+    }
+
+    /* ========= Stocks：AI 推荐（与之前相同，点卡片直接用代码，不加前缀） ========= */
+    const UNIVERSE = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","V","MA","JPM","HD","UNH"];
+    async function getAIRecommendations(n=4){
+      if (!OPENAI_API_KEY || OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY') return [];
+      const prompt = `
+从以下股票池中挑选${n}只值得关注的股票，并给出一句简短理由（中文，非投资建议）:
+${UNIVERSE.join(", ")}
+格式: JSON数组 [{ "symbol":"AAPL", "reason":"理由" }]
+      `;
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":`Bearer ${OPENAI_API_KEY}` },
+        body: JSON.stringify({ model:OPENAI_MODEL, messages:[{role:"user",content:prompt}], temperature:0.7 })
+      });
+      const json = await resp.json();
+      try { return JSON.parse(json.choices[0].message.content); } catch { return []; }
+    }
+    function renderRecommendations(list){
+      recGrid.innerHTML="";
+      list.forEach(item=>{
+        const card=document.createElement("div");
+        card.className="rec-card";
+        card.innerHTML=`<div class="rec-symbol">${item.symbol}</div><div class="rec-reason">${item.reason||""}</div>`;
+        card.addEventListener("click", async ()=>{
+          // 直接用代码（无前缀）
+          const symbol=item.symbol.toUpperCase();
+          document.getElementById('symbol').value=symbol;
+          resultDiv.textContent="Loading...";
+          const quote=await fetchQuote(symbol);
+          if(quote){ renderQuote(quote); chartTitle.textContent = `${symbol} • Stock Chart`; renderTradingView(symbol); }
+          window.scrollTo({top:document.querySelector('.tv-wrap').offsetTop-16,behavior:'smooth'});
+        });
+        recGrid.appendChild(card);
+      });
+    }
+
+    /* ========= Init ========= */
+    document.addEventListener('DOMContentLoaded', async ()=>{
+      // 默认加载股票 AAPL 图表
+      chartTitle.textContent = 'AAPL • Stock Chart';
+      renderTradingView("AAPL");
+
+      // AI 推荐
+      try{
+        let recs = await getAIRecommendations(4);
+        if(recs.length){
+          renderRecommendations(recs); recStatus.textContent="已加载推荐（AI 生成）";
+        } else {
+          recStatus.textContent="已加载推荐（本地兜底）";
+          renderRecommendations(UNIVERSE.slice(0,4).map(s=>({symbol:s,reason:"市场关注度高"})));
+        }
+      }catch{
+        recStatus.textContent="AI 推荐不可用";
+      }
+    });
+
+    /* ========= 事件：Stocks ========= */
+    stockForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const symbol=document.getElementById('symbol').value.trim().toUpperCase();
+      if(!symbol) return;
+      resultDiv.textContent="Loading...";
+      const quote=await fetchQuote(symbol);
+      if(quote){
+        renderQuote(quote);
+        chartTitle.textContent = `${symbol} • Stock Chart`;
+        renderTradingView(symbol);
+      } else {
+        resultDiv.innerHTML = `<span class="error">No data for ${symbol}</span>`;
+      }
+    });
+
+    /* ========= 事件：Crypto ========= */
+    cryptoForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const base = document.getElementById('cryptoSymbol').value.trim().toUpperCase();  // BTC
+      let quote = document.getElementById('cryptoMarket').value.trim().toUpperCase();   // USD / USDT / ...
+      const exSel = document.getElementById('cryptoExchange').value;                    // COINBASE / BINANCE
+      if(!base || !quote) return;
+
+      cryptoResult.textContent = 'Loading...';
+
+      try {
+        // 1) 实时汇率
+        // 如果选 Binance + USDT，汇率可改为 BTC->USDT；否则按 base->quote
+        const exRate = await fetchCryptoExchangeRate(base, quote);
+
+        // 2) 日线数据（尽量用 USD/EUR/JPY 这类法币市场；USDT也能返回）
+        const daily = await fetchCryptoDaily(base, quote);
+
+        renderCryptoQuote(base, quote, exRate, daily);
+
+        // 3) 图表：交易所映射
+        //   Coinbase: COINBASE:BTCUSD
+        //   Binance : BINANCE:BTCUSDT
+        let tvSymbol = '';
+        if (exSel === 'COINBASE') {
+          const q = (quote === 'USDT') ? 'USD' : quote; // Coinbase 多用 USD 法币
+          tvSymbol = `COINBASE:${base}${q}`;
+        } else { // BINANCE
+          const q = (quote === 'USD') ? 'USDT' : quote; // Binance 常用 USDT 计价
+          tvSymbol = `BINANCE:${base}${q}`;
+        }
+        chartTitle.textContent = `${base}/${quote} • Crypto Chart`;
+        renderTradingView(tvSymbol);
+      } catch(err){
+        cryptoResult.innerHTML = `<span class="error">Error fetching crypto data.</span>`;
+      }
+    });
+  </script>
+</body>
+</html>
