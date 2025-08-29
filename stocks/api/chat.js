@@ -17,6 +17,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "OPENAI_API_KEY is not set" });
     }
 
+    
     // 兼容某些情况下 req.body 为 undefined：手动解析
     const body =
       req.body ??
