@@ -71,24 +71,21 @@ export default async function handler(req, res) {
     });
 
     const text = await upstream.text();
-    let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = { raw: text };
-    }
+let payload;
+try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
 
-    if (!upstream.ok) {
-      // 把上游错误透出，便于在 Network / Logs 中定位
-      console.error("OpenAI upstream error:", upstream.status, payload);
-      return res.status(upstream.status).json({
-        error: "Upstream OpenAI error",
-        status: upstream.status,
-        payload,
-      });
-    }
+if (!upstream.ok) {
+  const retryAfter = upstream.headers.get("retry-after");
+  console.error("OpenAI upstream error:", upstream.status, payload, "retry-after:", retryAfter);
+  return res.status(upstream.status).json({
+    error: "Upstream OpenAI error",
+    status: upstream.status,
+    retryAfter: retryAfter ? Number(retryAfter) : undefined,
+    payload
+  });
+}
 
-    return res.status(200).json(payload);
+return res.status(200).json(payload);
   } catch (err) {
     console.error("Proxy error:", err);
     return res.status(500).json({
