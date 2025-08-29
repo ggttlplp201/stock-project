@@ -107,6 +107,38 @@
     const AV_API_KEY   = 'ZF69D9QK42EURZBH';    // Alpha Vantage
     const PROXY_URL    = "/api/chat";           // Your OpenAI proxy endpoint
     const OPENAI_MODEL = "gpt-4o-mini";
+    // ---- Alpha Vantage throttle + cache helpers ----
+const AV_RATE_MS = 13_000;            // ~5 req/min
+let avLastCall = 0;
+const avCache = new Map();            // { key: {at:number, data:any} }
+
+function pickAvMsg(obj){
+  return obj?.Note || obj?.Information || obj?.["Error Message"];
+}
+
+async function avFetchJson(params, cacheKey, ttlMs = 60_000){
+  const qs = new URLSearchParams({ ...params, apikey: AV_API_KEY }).toString();
+  const url = `https://www.alphavantage.co/query?${qs}`;
+
+  // cache hit
+  const hit = avCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.data;
+
+  // simple throttle to respect 5/min
+  const wait = Math.max(0, AV_RATE_MS - (Date.now() - avLastCall));
+  if (wait > 0) await sleep(wait);
+  avLastCall = Date.now();
+
+  const res  = await fetch(url);
+  const data = await res.json().catch(()=> ({}));
+
+  const msg = pickAvMsg(data);
+  if (msg) throw new Error(`Alpha Vantage: ${msg}`);
+
+  avCache.set(cacheKey, { at: Date.now(), data });
+  return data;
+}
+
 
     /* ========= Retry helper for AI proxy ========= */
     function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
@@ -191,37 +223,42 @@
     }
 
     /* ========= Alpha Vantage: Stocks ========= */
-    async function fetchQuote(symbol) {
-      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${AV_API_KEY}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      return data && data['Global Quote'] && data['Global Quote']['01. symbol'] ? data['Global Quote'] : null;
-    }
-    function renderQuote(quote) {
-      resultDiv.innerHTML = `
-        <h2>${quote['01. symbol']}</h2>
-        <p><strong>Price:</strong> $${quote['05. price']}</p>
-        <p><strong>Open:</strong> $${quote['02. open']}</p>
-        <p><strong>High:</strong> $${quote['03. high']}</p>
-        <p><strong>Low:</strong> $${quote['04. low']}</p>
-        <p><strong>Prev Close:</strong> $${quote['08. previous close']}</p>
-        <p><strong>Change:</strong> ${quote['09. change']} (${quote['10. change percent']})</p>
-      `;
-    }
+    // Stocks
+async function fetchQuote(symbol) {
+  const data = await avFetchJson(
+    { function: 'GLOBAL_QUOTE', symbol },
+    `quote:${symbol}`,
+    30_000
+  );
+  return data && data['Global Quote'] && data['Global Quote']['01. symbol']
+    ? data['Global Quote']
+    : null;
+}
 
-    /* ========= Alpha Vantage: Crypto ========= */
-    async function fetchCryptoExchangeRate(base, quote){
-      const url = `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(base)}&to_currency=${encodeURIComponent(quote)}&apikey=${AV_API_KEY}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      return data && data['Realtime Currency Exchange Rate'] ? data['Realtime Currency Exchange Rate'] : null;
-    }
-    async function fetchCryptoDaily(base, quote){
-      const url = `https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_DAILY&symbol=${encodeURIComponent(base)}&market=${encodeURIComponent(quote)}&apikey=${AV_API_KEY}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      return data && data['Time Series (Digital Currency Daily)'] ? data['Time Series (Digital Currency Daily)'] : null;
-    }
+// Crypto (realtime rate)
+async function fetchCryptoExchangeRate(base, quote){
+  const data = await avFetchJson(
+    { function: 'CURRENCY_EXCHANGE_RATE', from_currency: base, to_currency: quote },
+    `rate:${base}:${quote}`,
+    30_000
+  );
+  return data && data['Realtime Currency Exchange Rate']
+    ? data['Realtime Currency Exchange Rate']
+    : null;
+}
+
+// Crypto (daily OHLC)
+async function fetchCryptoDaily(base, quote){
+  const data = await avFetchJson(
+    { function: 'DIGITAL_CURRENCY_DAILY', symbol: base, market: quote },
+    `daily:${base}:${quote}`,
+    5 * 60_000
+  );
+  return data && data['Time Series (Digital Currency Daily)']
+    ? data['Time Series (Digital Currency Daily)']
+    : null;
+}
+
 
     // Robust OHLC picker for AV Digital Currency Daily
     function avPickOHLC(dayObj, preferQuote = "USD") {
@@ -368,20 +405,26 @@ Universe: ${UNIVERSE.join(", ")}
     });
 
     /* ========= Events ========= */
-    stockForm.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      const symbol=document.getElementById('symbol').value.trim().toUpperCase();
-      if(!symbol) return;
-      resultDiv.textContent="Loading...";
-      const quote=await fetchQuote(symbol);
-      if(quote){
-        renderQuote(quote);
-        chartTitle.textContent = `${symbol} • Stock Chart`;
-        renderTradingView(symbol);
-      } else {
-        resultDiv.innerHTML = `<span class="error">No data for ${symbol}</span>`;
-      }
-    });
+   stockForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const symbol = document.getElementById('symbol').value.trim().toUpperCase();
+  if(!symbol) return;
+  resultDiv.textContent = "Loading...";
+  try {
+    const quote = await fetchQuote(symbol);
+    if(quote){
+      renderQuote(quote);
+      chartTitle.textContent = `${symbol} • Stock Chart`;
+      renderTradingView(symbol);
+    } else {
+      resultDiv.innerHTML = `<span class="error">No data for ${symbol}</span>`;
+    }
+  } catch (err){
+    console.error(err);
+    resultDiv.innerHTML = `<span class="error">${err?.message || 'Error fetching quote.'}</span>`;
+  }
+});
+
 
     cryptoForm.addEventListener('submit', async (e)=>{
       e.preventDefault();
@@ -398,7 +441,8 @@ Universe: ${UNIVERSE.join(", ")}
 
         // 2) daily series (USDT → use USD for AV)
         const avMarket = (quote === 'USDT') ? 'USD' : quote;
-        const daily = await fetchCryptoDaily(base, avMarket);
+const daily = await fetchCryptoDaily(base, avMarket);
+
 
         renderCryptoQuote(base, quote, exRate, daily);
 
@@ -414,9 +458,9 @@ Universe: ${UNIVERSE.join(", ")}
         chartTitle.textContent = `${base}/${quote} • Crypto Chart`;
         renderTradingView(tvSymbol);
       } catch(err){
-        console.error(err);
-        cryptoResult.innerHTML = `<span class="error">Error fetching crypto data.</span>`;
-      }
+  console.error(err);
+  cryptoResult.innerHTML = `<span class="error">${err?.message || 'Error fetching crypto data.'}</span>`;
+}
     });
   </script>
 </body>
