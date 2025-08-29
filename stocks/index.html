@@ -102,8 +102,42 @@
   <script>
     /* ========= Config ========= */
     const AV_API_KEY = 'MXW8J9FLMSVW8FAW';        
-    const PROXY_URL = "/api/chat";                
-    const OPENAI_MODEL = 'gpt-4o-mini';
+    const PROXY_URL = "/api/chat";   
+    const OPENAI_MODEL = "gpt-4o-mini"; 
+
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+async function postChatWithRetry(body, { retries = 3, baseDelay = 800 } = {}) {
+  for (let i = 0; i <= retries; i++) {
+    const resp = await fetch(PROXY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const json = await resp.json().catch(() => ({}));
+
+    // 成功
+    if (resp.ok && !json.error) return json;
+
+    // 命中限流 → 退避重试
+    if (resp.status === 429 && i < retries) {
+      const retryAfter =
+        Number(resp.headers.get("retry-after")) ||
+        Number(json.retryAfter) ||
+        0;
+      const delay = retryAfter ? retryAfter * 1000 : baseDelay * Math.pow(2, i);
+      console.warn(`429 rate limit, retry in ${delay}ms (attempt ${i+1}/${retries})`);
+      await sleep(delay);
+      continue;
+    }
+
+    // 其他错误，直接抛出
+    throw { resp, json };
+  }
+  throw new Error("Exceeded retries");
+}
+
 
     /* ========= DOM ========= */
     const tabStocks = document.getElementById('tab-stocks');
@@ -216,34 +250,64 @@
 
     /* ========= Stocks：AI 推荐（通过代理） ========= */
     const UNIVERSE = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","V","MA","JPM","HD","UNH"];
+// --- 去重 + 本地缓存（6h） ---
+let aiReqInFlight = false;
+const REC_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小时
 
-    async function getAIRecommendations(n=4){
-      const prompt = `
-从以下股票池中挑选${n}只值得关注的股票，并给出一句简短理由（中文，非投资建议）:
-${UNIVERSE.join(", ")}
-格式: JSON数组 [{ "symbol":"AAPL", "reason":"理由" }]
-      `;
-      try {
-        const resp = await fetch(PROXY_URL, {
-          method:"POST",
-          headers:{
-            "Content-Type":"application/json",
-            // 如果后端加了鉴权，解开下一行并设置同样的值
-            // "x-proxy-key": PROXY_ACCESS_KEY,
-          },
-          body: JSON.stringify({
-            model: OPENAI_MODEL,
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.7
-          })
-        });
-        const json = await resp.json();
-        return JSON.parse(json?.choices?.[0]?.message?.content || "[]");
-      } catch (e) {
-        console.error("AI proxy error:", e);
-        return [];
-      }
-    }
+function loadCachedRecs(key){
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    if (Date.now() - ts < REC_CACHE_TTL) return data;
+  } catch {}
+  return null;
+}
+function saveCachedRecs(key, data){
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch {}
+}
+
+    async function getAIRecommendations(n = 4){
+  // 去重：已有请求在飞就不再并发触发
+  if (aiReqInFlight) return [];
+  aiReqInFlight = true;
+
+  const CACHE_KEY = `ai_rec_${UNIVERSE.join("-")}_${n}`;
+  const cached = loadCachedRecs(CACHE_KEY);
+  if (cached) {
+    aiReqInFlight = false;
+    return cached;
+  }
+
+  const prompt = `
+你是股票筛选助手。从以下股票池中挑选${n}只值得关注的股票，并给出一句简短理由。
+只输出严格的 JSON 数组，不要任何额外文字或换行。
+格式:[{"symbol":"AAPL","reason":"新品发布预期带动增长"}]
+股票池:${UNIVERSE.join(", ")}
+`.trim();
+
+  try {
+    const json = await postChatWithRetry({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7
+    }, { retries: 3, baseDelay: 800 });
+
+    const list = JSON.parse(json?.choices?.[0]?.message?.content || "[]");
+    if (Array.isArray(list) && list.length) saveCachedRecs(CACHE_KEY, list);
+    return list;
+  } catch (e) {
+    console.error("AI proxy error:", e?.json || e);
+    // 把错误显示在页面状态栏，方便你观察
+    recStatus.textContent = `AI错误：${
+      e?.json?.error || e?.json?.payload?.error?.message || e?.resp?.status || "unknown"
+    }`;
+    return [];
+  } finally {
+    aiReqInFlight = false;
+  }
+}
+
 
     function renderRecommendations(list){
       recGrid.innerHTML="";
