@@ -43,7 +43,7 @@
 <body>
   <div class="container">
     <h1>📈 Stock & Crypto Viewer</h1>
-    <p class="sub">开页即看 AI 推荐（股票） • 查询报价与图表（股票/加密）• 仅学习演示，非投资建议</p>
+
 
     <div class="tabs">
       <button id="tab-stocks" class="tab-btn active">Stocks</button>
@@ -64,7 +64,7 @@
         <input type="text" id="symbol" required placeholder="e.g. AAPL 或 TSLA" />
         <button class="btn" type="submit">Get Quote</button>
       </form>
-      <div class="hint">输入代码（<code>AAPL</code>、<code>TSLA</code> 等）。</div>
+
 
       <div id="result" class="card"></div>
     </section>
@@ -101,11 +101,9 @@
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script>
     /* ========= Config ========= */
-    const AV_API_KEY = 'MXW8J9FLMSVW8FAW';        // Alpha Vantage
-    const PROXY_URL = "/api/chat";                 // ✅ 用 Vercel 代理；不要在前端放 OpenAI Key
+    const AV_API_KEY = 'MXW8J9FLMSVW8FAW';        
+    const PROXY_URL = "/api/chat";                
     const OPENAI_MODEL = 'gpt-4o-mini';
-    // 如果你给代理加了鉴权，可解开下一行并在请求头里加 x-proxy-key
-    // const PROXY_ACCESS_KEY = "你的自定义前端访问键";
 
     /* ========= DOM ========= */
     const tabStocks = document.getElementById('tab-stocks');
