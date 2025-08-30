@@ -49,6 +49,11 @@
   <div class="container">
     <h1>📈 Stock & Crypto Viewer</h1>
 
+<div id="insights" class="card">
+  <h2 style="margin:0 0 .5rem;">AI Insights</h2>
+  <div id="insights-body" class="hint">An AI summary for the current chart will appear here.</div>
+</div>
+
     <!-- Tabs -->
     <div class="tabs">
       <button id="tab-stocks" class="tab-btn active">Stocks</button>
@@ -95,6 +100,7 @@
 
     <!-- Chart -->
     <div class="tv-wrap">
+      
       <h2 id="chart-title" style="margin:0 0 .5rem;">Interactive Chart</h2>
       <div id="tv_chart_container" class="tv-container"></div>
     </div>
@@ -107,6 +113,101 @@
     const AV_API_KEY   = 'MXW8J9FLMSVW8FAW';    // Alpha Vantage
     const PROXY_URL    = "/api/chat";           // Your OpenAI proxy endpoint
     const OPENAI_MODEL = "gpt-4o-mini";
+    /* ========= AI Insights (auto on every symbol) ========= */
+const INSIGHTS_LANG = 'English';                 // 需要中文可以改成 'Chinese'
+const INS_CACHE_TTL = 6 * 60 * 60 * 1000;        // 6 小时缓存
+
+function setInsights(html) {
+  document.getElementById('insights-body').innerHTML = html;
+}
+function seriesToLines(series) {
+  // 仅保留最近 120 根，按时间从旧到新
+  return series.slice(-120).map(c =>
+    `${c.t},O${c.o},H${c.h},L${c.l},C${c.c},V${c.v}`
+  ).join('\n');
+}
+async function askAIForInsightsFromSeries(series, label, kind) {
+  const lines = seriesToLines(series);
+  const prompt = `You are a market analyst. Analyze the following ${kind} daily OHLCV series for ${label}.
+Return 3–5 concise bullet points in ${INSIGHTS_LANG}: trend, momentum/volatility, notable levels/patterns, and one-sentence takeaway.
+DO NOT give investment advice. Plain text bullets only.
+Data (oldest to newest):
+${lines}`;
+  const json = await postChatWithRetry(
+    { model: OPENAI_MODEL, messages:[{role:'user', content: prompt}], temperature: 0.4 },
+    { retries: 2, baseDelay: 1200 }
+  );
+  return json?.choices?.[0]?.message?.content || '';
+}
+async function explainFromSeriesCached(key, seriesFetcher, label, kind){
+  const cached = loadCachedRecs(key);
+  if (cached){ setInsights(cached.replace(/\n/g,'<br>')); return; }
+  setInsights('Generating AI insights…');
+  const series = await seriesFetcher();
+  if (!series || series.length < 20){
+    setInsights('<span class="hint">Not enough data to generate insights.</span>');
+    return;
+  }
+  const text = await askAIForInsightsFromSeries(series, label, kind);
+  const html = text.replace(/\n/g,'<br>');
+  setInsights(html);
+  saveCachedRecs(key, text);
+}
+
+/* ---- 获取 K 线：Crypto 优先 Binance，失败再回退 Alpha Vantage ---- */
+async function fetchCryptoCandlesFromBinance(base, quote, limit=120){
+  const q = (quote === 'USD') ? 'USDT' : quote;                 // Binance 常用 USDT
+  const symbol = `${base}${q}`.toUpperCase();
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=${limit}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Binance candles error');
+  const arr = await r.json();
+  return arr.map(k => ({ t:new Date(k[0]).toISOString().slice(0,10), o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5] }));
+}
+async function fetchCryptoCandlesSmart(base, quote){
+  try { return await fetchCryptoCandlesFromBinance(base, quote); }
+  catch (e){
+    // 回退用 AV 的日线（我们前面已写过 avPickOHLC / fetchCryptoDaily）
+    const avMarket = (quote === 'USDT') ? 'USD' : quote;
+    const daily = await fetchCryptoDaily(base, avMarket);
+    if (!daily) return null;
+    const dates = Object.keys(daily).sort();
+    return dates.map(d => {
+      const ohlc = avPickOHLC(daily[d], avMarket);
+      return { t:d, o:+ohlc.open, h:+ohlc.high, l:+ohlc.low, c:+ohlc.close, v:+(daily[d]['5. volume']||0) };
+    });
+  }
+}
+
+/* ---- 获取 K 线：Stock 用 AV 日线（自带你之前加的限流/缓存）---- */
+async function fetchStockDaily(symbol){
+  // 有 avFetchJson 就用；没有就直接 fetch
+  let data;
+  if (typeof avFetchJson === 'function') {
+    data = await avFetchJson({ function:'TIME_SERIES_DAILY_ADJUSTED', symbol }, `tsda:${symbol}`, 5*60_000);
+  } else {
+    const url = 'https://www.alphavantage.co/query?' +
+      new URLSearchParams({ function:'TIME_SERIES_DAILY_ADJUSTED', symbol, apikey: AV_API_KEY }).toString();
+    data = await (await fetch(url)).json();
+  }
+  const ts = data && (data['Time Series (Daily)'] || data['Time Series (Daily)']);
+  if (!ts) return null;
+  const dates = Object.keys(ts).sort(); // 从旧到新
+  return dates.map(d => {
+    const row = ts[d];
+    return { t:d, o:+row['1. open'], h:+row['2. high'], l:+row['3. low'], c:+row['4. close'], v:+(row['6. volume'] || row['5. volume'] || 0) };
+  });
+}
+
+/* ---- 对外触发：当前标的生成解读 ---- */
+function generateInsightsForStock(symbol){
+  return explainFromSeriesCached(`ins_stock_${symbol}`, () => fetchStockDaily(symbol), symbol, 'stock');
+}
+function generateInsightsForCrypto(base, quote){
+  const label = `${base}/${quote}`;
+  return explainFromSeriesCached(`ins_crypto_${label}`, () => fetchCryptoCandlesSmart(base, quote), label, 'crypto');
+}
+
 
     /* ========= Retry helper for AI proxy ========= */
     function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
@@ -334,14 +435,27 @@ Universe: ${UNIVERSE.join(", ")}
         card.className="rec-card";
         card.innerHTML=`<div class="rec-symbol">${item.symbol}</div><div class="rec-reason">${item.reason||""}</div>`;
         card.addEventListener("click", async ()=>{
-          const symbol=item.symbol.toUpperCase();
-          document.getElementById('symbol').value=symbol;
-          resultDiv.textContent="Loading...";
-          const quote=await fetchQuote(symbol);
-          if(quote){ renderQuote(quote); chartTitle.textContent = `${symbol} • Stock Chart`; renderTradingView(symbol); }
-          else { resultDiv.innerHTML = `<span class="error">No data for ${symbol}</span>`; }
-          window.scrollTo({top:document.querySelector('.tv-wrap').offsetTop-16,behavior:'smooth'});
-        });
+  const symbol=item.symbol.toUpperCase();
+  document.getElementById('symbol').value=symbol;
+
+  chartTitle.textContent = `${symbol} • Stock Chart`;
+  renderTradingView(symbol);
+
+  // AI 解读
+  generateInsightsForStock(symbol);
+
+  resultDiv.textContent="Loading quote...";
+  try {
+    const quote=await fetchQuote(symbol);
+    if(quote){ renderQuote(quote); }
+    else { resultDiv.innerHTML = `<span class="error">No data for ${symbol}</span>`; }
+  } catch (err){
+    console.error(err);
+    resultDiv.innerHTML = `<span class="error">${err?.message || 'Error fetching quote.'}</span>`;
+  }
+  window.scrollTo({top:document.querySelector('.tv-wrap').offsetTop-16,behavior:'smooth'});
+});
+
         recGrid.appendChild(card);
       });
     }
@@ -369,55 +483,65 @@ Universe: ${UNIVERSE.join(", ")}
 
     /* ========= Events ========= */
     stockForm.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      const symbol=document.getElementById('symbol').value.trim().toUpperCase();
-      if(!symbol) return;
-      resultDiv.textContent="Loading...";
-      const quote=await fetchQuote(symbol);
-      if(quote){
-        renderQuote(quote);
-        chartTitle.textContent = `${symbol} • Stock Chart`;
-        renderTradingView(symbol);
-      } else {
-        resultDiv.innerHTML = `<span class="error">No data for ${symbol}</span>`;
-      }
-    });
+  e.preventDefault();
+  const symbol = document.getElementById('symbol').value.trim().toUpperCase();
+  if(!symbol) return;
+
+  // 先切图
+  chartTitle.textContent = `${symbol} • Stock Chart`;
+  renderTradingView(symbol);
+
+  // 触发 AI 解读（不依赖报价）
+  generateInsightsForStock(symbol);
+
+  // 再异步取报价
+  resultDiv.textContent="Loading quote...";
+  try {
+    const quote=await fetchQuote(symbol);
+    if(quote){ renderQuote(quote); }
+    else { resultDiv.innerHTML = `<span class="error">No data for ${symbol}</span>`; }
+  } catch(err){
+    console.error(err);
+    resultDiv.innerHTML = `<span class="error">${err?.message || 'Error fetching quote.'}</span>`;
+  }
+});
+
 
     cryptoForm.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      const base  = document.getElementById('cryptoSymbol').value.trim().toUpperCase();
-      const quote = document.getElementById('cryptoMarket').value.trim().toUpperCase();
-      const exSel = document.getElementById('cryptoExchange').value;
-      if(!base || !quote) return;
+  e.preventDefault();
+  const base  = document.getElementById('cryptoSymbol').value.trim().toUpperCase();
+  const quote = document.getElementById('cryptoMarket').value.trim().toUpperCase();
+  const exSel = document.getElementById('cryptoExchange').value;
+  if(!base || !quote) return;
 
-      cryptoResult.textContent = 'Loading...';
+  // 先切 TradingView 图
+  let tvSymbol = '';
+  if (exSel === 'COINBASE') {
+    const q = (quote === 'USDT') ? 'USD' : quote;
+    tvSymbol = `COINBASE:${base}${q}`;
+  } else {
+    const q = (quote === 'USD') ? 'USDT' : quote;
+    tvSymbol = `BINANCE:${base}${q}`;
+  }
+  chartTitle.textContent = `${base}/${quote} • Crypto Chart`;
+  renderTradingView(tvSymbol);
 
-      try {
-        // 1) realtime rate
-        const exRate = await fetchCryptoExchangeRate(base, quote);
+  // AI 解读（不依赖 AV）
+  generateInsightsForCrypto(base, quote);
 
-        // 2) daily series (USDT → use USD for AV)
-        const avMarket = (quote === 'USDT') ? 'USD' : quote;
-        const daily = await fetchCryptoDaily(base, avMarket);
+  // 再异步取汇率/日线（可被 AV 限流，但不影响上面两步）
+  cryptoResult.textContent = 'Loading...';
+  try {
+    const exRate = await fetchCryptoExchangeRate(base, quote);
+    const avMarket = (quote === 'USDT') ? 'USD' : quote;
+    const daily = await fetchCryptoDaily(base, avMarket);
+    renderCryptoQuote(base, quote, exRate, daily);
+  } catch(err){
+    console.error(err);
+    cryptoResult.innerHTML = `<span class="error">${err?.message || 'Error fetching crypto data.'}</span>`;
+  }
+});
 
-        renderCryptoQuote(base, quote, exRate, daily);
-
-        // 3) TradingView symbol
-        let tvSymbol = '';
-        if (exSel === 'COINBASE') {
-          const q = (quote === 'USDT') ? 'USD' : quote; // Coinbase prefers USD
-          tvSymbol = `COINBASE:${base}${q}`;
-        } else {
-          const q = (quote === 'USD') ? 'USDT' : quote; // Binance often uses USDT
-          tvSymbol = `BINANCE:${base}${q}`;
-        }
-        chartTitle.textContent = `${base}/${quote} • Crypto Chart`;
-        renderTradingView(tvSymbol);
-      } catch(err){
-        console.error(err);
-        cryptoResult.innerHTML = `<span class="error">Error fetching crypto data.</span>`;
-      }
-    });
   </script>
 </body>
 </html>
