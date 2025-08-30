@@ -38,6 +38,34 @@
     .card h2 { margin:0 0 .5rem; }
     .error { color:#c62828; font-weight:700; }
 
+    /* --- AI Insights --- */ 
+#insights.card {
+  padding: 1.25rem 1.25rem 1rem;
+  background: linear-gradient(180deg, #ffffff, #f7faff);
+  border: 1px solid #e7eef8;
+}
+.ins-head {
+  display:flex; justify-content:space-between; align-items:center;
+  margin: 0 0 .5rem;
+}
+.ins-title {
+  font-size:1.1rem; font-weight:800; color:#223555; letter-spacing:.2px;
+}
+.ins-meta {
+  font-size:.85rem; color:#6b7a90;
+}
+.ins-list {
+  margin:.25rem 0 0; padding-left:1.1rem;
+}
+.ins-list li {
+  margin:.35rem 0; line-height:1.55;
+}
+.badge {
+  display:inline-block; padding:.15rem .5rem; border-radius:999px;
+  background:#eef3ff; color:#3b5bdb; font-size:.75rem; border:1px solid #dbe6ff;
+}
+
+
     /* Chart */
     .tv-wrap { background:var(--card); border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.08); padding:1rem; }
     .tv-container { width:100%; height:600px; }
@@ -102,9 +130,13 @@
 
     <!-- AI Insights -->
     <div id="insights" class="card">
-  <h2 style="margin:0 0 .5rem;">AI Insights</h2>
+  <div class="ins-head">
+    <div class="ins-title">AI Insights</div>
+    <div class="ins-meta" id="insights-meta"><span class="badge">loading…</span></div>
+  </div>
   <div id="insights-body" class="hint">An AI summary for the current chart will appear here.</div>
 </div>
+
   </div>
 
   <!-- TradingView -->
@@ -138,6 +170,31 @@ function seriesToLines(series) {
     `${c.t},O${c.o},H${c.h},L${c.l},C${c.c},V${c.v}`
   ).join('\n');
 }
+// 将模型返回的纯文本转成列表（支持以 "- " 开头的行）
+function renderInsightsText(text){
+  if (!text) return '<span class="hint">No insights.</span>';
+  const lines = text.split('\n').map(s=>s.trim()).filter(Boolean);
+  const bullets = lines.every(l => l.startsWith('- '));
+  if (bullets) {
+    const items = lines.map(l => `<li>${l.replace(/^- /,'')}</li>`).join('');
+    return `<ul class="ins-list">${items}</ul>`;
+  }
+  // 回退：普通段落
+  return `<div style="line-height:1.6">${text.replace(/\n/g,'<br>')}</div>`;
+}
+
+function setInsights(html, { meta } = {}){
+  document.getElementById('insights-body').innerHTML = html;
+  if (meta) document.getElementById('insights-meta').innerHTML = meta;
+}
+
+function seriesToLines(series){
+  // 仅保留最近120根（够AI判断），并转成简洁的 OHLCV 文本表格
+  return series.slice(-120).map(c =>
+    `${c.t},O${c.o},H${c.h},L${c.l},C${c.c},V${c.v}`
+  ).join('\n');
+}
+
 async function askAIForInsightsFromSeries(series, label, kind) {
   const lines = seriesToLines(series);
   const prompt = `You are a market analyst. Analyze the following ${kind} daily OHLCV series for ${label}.
@@ -153,18 +210,45 @@ ${lines}`;
 }
 async function explainFromSeriesCached(key, seriesFetcher, label, kind){
   const cached = loadCachedRecs(key);
-  if (cached){ setInsights(cached.replace(/\n/g,'<br>')); return; }
-  setInsights('Generating AI insights…');
-  const series = await seriesFetcher();
-  if (!series || series.length < 20){
-    setInsights('<span class="hint">Not enough data to generate insights.</span>');
+  if (cached){
+    setInsights(renderInsightsText(cached), { meta: `<span class="badge">cached</span>` });
     return;
   }
-  const text = await askAIForInsightsFromSeries(series, label, kind);
-  const html = text.replace(/\n/g,'<br>');
-  setInsights(html);
-  saveCachedRecs(key, text);
+  setInsights('Generating AI insights…', { meta: `<span class="badge">generating…</span>` });
+
+  const series = await seriesFetcher();
+  if (!series || series.length < 20){
+    setInsights('<span class="hint">Not enough data to generate insights.</span>',
+                { meta: `<span class="badge">no-data</span>` });
+    return;
+  }
+
+  // 从序列里判断时间框架（D/W），显示在 meta
+  const tf = series[series.length - 1]._tf || 'D';
+  const meta = `<span class="badge">${kind} • ${tf}</span> <span class="badge">last ${Math.min(120, series.length)} bars</span>`;
+
+  const lines = seriesToLines(series);
+  const prompt = `You are a market analyst. Analyze the following ${kind} ${tf} OHLCV series for ${label}.
+Return 3–5 concise bullet points in English: trend, momentum/volatility, notable levels/patterns, and one-sentence takeaway.
+No investment advice. Bulleted list using "- ".
+Data (oldest to newest):
+${lines}`;
+
+  try {
+    const json = await postChatWithRetry(
+      { model: OPENAI_MODEL, messages:[{role:'user', content: prompt}], temperature: 0.4 },
+      { retries: 2, baseDelay: 1200 }
+    );
+    const text = json?.choices?.[0]?.message?.content || '';
+    saveCachedRecs(key, text);
+    setInsights(renderInsightsText(text), { meta });
+  } catch (e){
+    console.error(e);
+    setInsights(`<span class="error">${e?.json?.error || e?.message || 'AI error'}</span>`,
+                { meta: `<span class="badge">error</span>` });
+  }
 }
+
 
 /* ---- 获取 K 线：Crypto 优先 Binance，失败再回退 Alpha Vantage ---- */
 // Fetch candles from Binance REST (spot). Supports interval / limit / start-end paging.
@@ -251,24 +335,63 @@ async function fetchCryptoCandlesSmart(base, quote, { interval='1d', want=120 } 
 
 
 /* ---- 获取 K 线：Stock 用 AV 日线（自带你之前加的限流/缓存）---- */
+// 从 Alpha Vantage 获取股票K线：优先日线，失败则回退到周线（更抗限流）
 async function fetchStockDaily(symbol){
-  // 有 avFetchJson 就用；没有就直接 fetch
-  let data;
-  if (typeof avFetchJson === 'function') {
-    data = await avFetchJson({ function:'TIME_SERIES_DAILY_ADJUSTED', symbol }, `tsda:${symbol}`, 5*60_000);
-  } else {
-    const url = 'https://www.alphavantage.co/query?' +
-      new URLSearchParams({ function:'TIME_SERIES_DAILY_ADJUSTED', symbol, apikey: AV_API_KEY }).toString();
-    data = await (await fetch(url)).json();
+  // 优先：日线（TIME_SERIES_DAILY_ADJUSTED）
+  try {
+    const data = await avFetchJson(
+      { function: 'TIME_SERIES_DAILY_ADJUSTED', symbol },
+      `tsda:${symbol}`,
+      5 * 60_000
+    );
+    const ts = data && data['Time Series (Daily)'];
+    if (ts) {
+      const dates = Object.keys(ts).sort(); // oldest -> newest
+      return dates.map(d => {
+        const row = ts[d];
+        return {
+          t: d,
+          o: +row['1. open'],
+          h: +row['2. high'],
+          l: +row['3. low'],
+          c: +row['4. close'],
+          v: +(row['6. volume'] || row['5. volume'] || 0),
+          _tf: 'D'
+        };
+      });
+    }
+  } catch (e) {
+    console.warn('AV daily failed:', e?.message || e);
   }
-  const ts = data && (data['Time Series (Daily)'] || data['Time Series (Daily)']);
-  if (!ts) return null;
-  const dates = Object.keys(ts).sort(); // 从旧到新
-  return dates.map(d => {
-    const row = ts[d];
-    return { t:d, o:+row['1. open'], h:+row['2. high'], l:+row['3. low'], c:+row['4. close'], v:+(row['6. volume'] || row['5. volume'] || 0) };
-  });
+
+  // 回退：周线（TIME_SERIES_WEEKLY_ADJUSTED）
+  try {
+    const data = await avFetchJson(
+      { function: 'TIME_SERIES_WEEKLY_ADJUSTED', symbol },
+      `tswa:${symbol}`,
+      10 * 60_000
+    );
+    const ts = data && (data['Weekly Adjusted Time Series'] || data['Weekly Time Series']);
+    if (!ts) return null;
+    const dates = Object.keys(ts).sort(); // oldest -> newest
+    return dates.map(d => {
+      const row = ts[d];
+      return {
+        t: d,
+        o: +row['1. open'],
+        h: +row['2. high'],
+        l: +row['3. low'],
+        c: +row['4. close'],
+        v: +(row['6. volume'] || row['5. volume'] || 0),
+        _tf: 'W'
+      };
+    });
+  } catch (e) {
+    console.warn('AV weekly failed:', e?.message || e);
+    return null;
+  }
 }
+
 
 /* ---- 对外触发：当前标的生成解读 ---- */
 function generateInsightsForStock(symbol){
