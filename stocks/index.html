@@ -115,8 +115,19 @@
     const PROXY_URL    = "/api/chat";           // Your OpenAI proxy endpoint
     const OPENAI_MODEL = "gpt-4o-mini";
     /* ========= AI Insights (auto on every symbol) ========= */
-const INSIGHTS_LANG = 'English';                 // 需要中文可以改成 'Chinese'
-const INS_CACHE_TTL = 6 * 60 * 60 * 1000;        // 6 小时缓存
+    const INSIGHTS_LANG = 'English';                 // 需要中文可以改成 'Chinese'
+    const INS_CACHE_TTL = 6 * 60 * 60 * 1000;        // 6 小时缓存
+
+    // --- Time helpers for Binance kline ---
+function toMs(t){
+  // 支持传入 Date / ISO 字符串 / ms 数字 / 空
+  if (!t) return undefined;
+  if (typeof t === 'number') return t;
+  const d = (t instanceof Date) ? t : new Date(t);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
 
 function setInsights(html) {
   document.getElementById('insights-body').innerHTML = html;
@@ -156,29 +167,88 @@ async function explainFromSeriesCached(key, seriesFetcher, label, kind){
 }
 
 /* ---- 获取 K 线：Crypto 优先 Binance，失败再回退 Alpha Vantage ---- */
-async function fetchCryptoCandlesFromBinance(base, quote, limit=120){
-  const q = (quote === 'USD') ? 'USDT' : quote;                 // Binance 常用 USDT
+// Fetch candles from Binance REST (spot). Supports interval / limit / start-end paging.
+async function fetchCryptoCandlesFromBinance(base, quote, {
+  interval = '1d',            // 参考 TV 的 D；Binance 用小写：'1d','4h','1h'...
+  limit = 500,                // 每次请求返回根数，<=1000
+  startTime,                  // 可选：Date|ISO|ms
+  endTime                     // 可选：Date|ISO|ms
+} = {}) {
+  // Binance 现货常用 USDT；若用户选 USD，则改为 USDT
+  const q = (quote === 'USD') ? 'USDT' : quote;
   const symbol = `${base}${q}`.toUpperCase();
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=${limit}`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('Binance candles error');
-  const arr = await r.json();
-  return arr.map(k => ({ t:new Date(k[0]).toISOString().slice(0,10), o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5] }));
-}
-async function fetchCryptoCandlesSmart(base, quote){
-  try { return await fetchCryptoCandlesFromBinance(base, quote); }
-  catch (e){
-    // 回退用 AV 的日线（我们前面已写过 avPickOHLC / fetchCryptoDaily）
-    const avMarket = (quote === 'USDT') ? 'USD' : quote;
-    const daily = await fetchCryptoDaily(base, avMarket);
-    if (!daily) return null;
-    const dates = Object.keys(daily).sort();
-    return dates.map(d => {
-      const ohlc = avPickOHLC(daily[d], avMarket);
-      return { t:d, o:+ohlc.open, h:+ohlc.high, l:+ohlc.low, c:+ohlc.close, v:+(daily[d]['5. volume']||0) };
+
+  // 统一时间为 ms
+  const endMs   = toMs(endTime);
+  let   cursor  = toMs(startTime);
+
+  const out = [];
+  const PAGE_LIMIT = Math.min(Math.max(1, limit|0), 1000); // 1..1000
+
+  // 封装一次请求
+  async function fetchPage(st) {
+    const params = new URLSearchParams({
+      symbol, interval, limit: String(PAGE_LIMIT)
     });
+    if (st) params.set('startTime', String(st));
+    if (endMs) params.set('endTime', String(endMs));
+
+    const url = `https://api.binance.com/api/v3/klines?` + params.toString();
+    const r = await fetch(url, { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`Binance klines error ${r.status}: ${txt}`);
+    }
+    const arr = await r.json(); // [[openTime,open,high,low,close,volume,closeTime,...], ...]
+    return arr.map(k => ({
+      t: new Date(k[0]).toISOString().slice(0,10),
+      o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5],
+      _openMs: k[0]
+    }));
   }
+
+  // 若未给 startTime，就拉一页足够用于 AI（例如 500 根）；若给了 startTime，就按游标分页
+  if (!cursor) {
+    const page = await fetchPage(undefined);
+    out.push(...page);
+  } else {
+    // 分页向后拉直到到 endTime 或拿不到更多
+    while (true) {
+      const page = await fetchPage(cursor);
+      if (!page.length) break;
+      out.push(...page);
+      // 下一页从最后一根的 closeTime+1 开始（用 openTime 也可以）
+      cursor = page[page.length - 1]._openMs + 1;
+      // 简单保护：最多 5000 根，避免过长循环
+      if (out.length >= 5000) break;
+      // 轻微节流，避免 429
+      await sleep(200);
+    }
+  }
+
+  return out;
 }
+
+async function fetchCryptoCandlesSmart(base, quote, { interval='1d', want=120 } = {}){
+  try {
+    // 直接从 Binance 拉最近 want 根（一次即可）
+    const arr = await fetchCryptoCandlesFromBinance(base, quote, { interval, limit: want });
+    if (arr?.length) return arr.slice(-want);
+  } catch(e){
+    console.warn('Binance candles failed, fallback to AV:', e?.message || e);
+  }
+  // 回退 AV 日线（我们已有 avPickOHLC / fetchCryptoDaily）
+  const avMarket = (quote === 'USDT') ? 'USD' : quote;
+  const daily = await fetchCryptoDaily(base, avMarket);
+  if (!daily) return null;
+  const dates = Object.keys(daily).sort(); // oldest -> newest
+  const out = dates.map(d => {
+    const ohlc = avPickOHLC(daily[d], avMarket);
+    return { t:d, o:+ohlc.open, h:+ohlc.high, l:+ohlc.low, c:+ohlc.close, v:+(daily[d]['5. volume']||0) };
+  });
+  return out.slice(-want);
+}
+
 
 /* ---- 获取 K 线：Stock 用 AV 日线（自带你之前加的限流/缓存）---- */
 async function fetchStockDaily(symbol){
@@ -204,15 +274,19 @@ async function fetchStockDaily(symbol){
 function generateInsightsForStock(symbol){
   return explainFromSeriesCached(`ins_stock_${symbol}`, () => fetchStockDaily(symbol), symbol, 'stock');
 }
-function generateInsightsForCrypto(base, quote){
+function generateInsightsForCrypto(base, quote, interval='1d'){
   const label = `${base}/${quote}`;
-  return explainFromSeriesCached(`ins_crypto_${label}`, () => fetchCryptoCandlesSmart(base, quote), label, 'crypto');
+  return explainFromSeriesCached(
+    `ins_crypto_${label}_${interval}`,
+    () => fetchCryptoCandlesSmart(base, quote, { interval, want: 120 }),
+    `${label} (${interval})`,
+    'crypto'
+  );
 }
 
-
-    /* ========= Retry helper for AI proxy ========= */
-    function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-    async function postChatWithRetry(body, { retries = 3, baseDelay = 800 } = {}) {
+/* ========= Retry helper for AI proxy ========= */
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+async function postChatWithRetry(body, { retries = 3, baseDelay = 800 } = {}) {
       for (let i = 0; i <= retries; i++) {
         const resp = await fetch(PROXY_URL, {
           method: "POST",
@@ -528,7 +602,8 @@ Universe: ${UNIVERSE.join(", ")}
   renderTradingView(tvSymbol);
 
   // AI 解读（不依赖 AV）
-  generateInsightsForCrypto(base, quote);
+  generateInsightsForCrypto(base, quote, '1d');
+
 
   // 再异步取汇率/日线（可被 AV 限流，但不影响上面两步）
   cryptoResult.textContent = 'Loading...';
