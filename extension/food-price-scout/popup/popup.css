@@ -1,0 +1,115 @@
+/* popup.css */
+body {
+  font-family: Arial, sans-serif;
+  background: #f5f7fa;
+  margin: 0;
+  padding: 16px 12px 8px 12px;
+  min-width: 320px;
+  max-width: 400px;
+  color: #222;
+}
+@media (prefers-color-scheme: dark) {
+  body { background: #181a1b; color: #eee; }
+  .result-card { background: #23272b; color: #eee; }
+  .badge { background: #222; color: #eee; border-color: #444; }
+  .btn { background: #eee; color: #222; }
+}
+header {
+  margin-bottom: 8px;
+}
+.btn {
+  background: #111827;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 0;
+  font-size: 1.08rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn:hover {
+  background: #222;
+}
+input[type="checkbox"] {
+  accent-color: #222;
+  width: 22px;
+  height: 22px;
+}
+#error {
+  color: #c62828;
+  font-weight: bold;
+  margin-top: 8px;
+  text-align: center;
+}
+#results {
+  margin-top: 8px;
+}
+.result-card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.result-card.best {
+  border-color: #111827;
+  box-shadow: 0 4px 16px rgba(17,24,39,0.10);
+}
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.result-img {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  margin-right: 10px;
+  background: #eee;
+}
+.result-title {
+  font-weight: bold;
+  font-size: 1.13rem;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #222;
+}
+.badges {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.badge {
+  background: #eef3ff;
+  color: #3b5bdb;
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.98rem;
+  border: 1px solid #dbe6ff;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.badge.price { color: #222; background: #f3f4f8; border-color: #e3e6ee; }
+.badge.eta { color: #222; background: #f3f4f8; border-color: #e3e6ee; }
+.badge.fee { color: #222; background: #f3f4f8; border-color: #e3e6ee; }
+.badge.star { color: #222; background: #f3f4f8; border-color: #e3e6ee; }
+.badge.lowest { background: #ffe066; color: #222; border-color: #ffd43b; }
