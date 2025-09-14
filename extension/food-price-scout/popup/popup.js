@@ -1,29 +1,27 @@
 // popup.js
 const scanBtn = document.getElementById('scanBtn');
-const sortMode = document.getElementById('sortMode');
-const filterInput = document.getElementById('filterInput');
+const sortPriceToggle = document.getElementById('sortPriceToggle');
 const resultsDiv = document.getElementById('results');
 const errorDiv = document.getElementById('error');
+const foundCount = document.getElementById('foundCount');
 
 let items = [];
 let bestIdx = -1;
 
 function render() {
-  const filter = filterInput.value.trim().toLowerCase();
-  let filtered = items.filter(i => i.name.toLowerCase().includes(filter));
-  if (sortMode.value === 'price') {
-    filtered = filtered.sort((a, b) => a.price - b.price);
-    bestIdx = filtered.length ? 0 : -1;
-  } else {
-    filtered = filtered.sort((a, b) => a.etaMin - b.etaMin);
-    bestIdx = filtered.length ? 0 : -1;
-  }
+  let filtered = items;
+  // Sort by price only
+  filtered = filtered.sort((a, b) => a.price - b.price);
+  bestIdx = filtered.length ? 0 : -1;
+  foundCount.textContent = `${filtered.length} found`;
   resultsDiv.innerHTML = filtered.map((item, idx) => `
     <div class="result-card${idx === bestIdx ? ' best' : ''}">
       <div class="result-title">${item.name}</div>
       <div class="badges">
-        <span class="badge">$${item.price}</span>
-        <span class="badge">${item.etaMin} min ETA</span>
+        <span class="badge price">$${item.price.toFixed(2)}${idx === bestIdx ? ' <span class=badge best>Lowest Price</span>' : ''}</span>
+        <span class="badge eta">⏱ ${item.etaMin}m</span>
+        <span class="badge fee">🚚 $${item.deliveryFee?.toFixed(2) ?? '--'}</span>
+        <span class="badge star">⭐ ${item.star ?? '--'}</span>
       </div>
     </div>
   `).join('');
@@ -38,11 +36,14 @@ function scanPage() {
       resultsDiv.innerHTML = '';
       return;
     }
-    items = resp.items || [];
+    items = (resp.items || []).map(i => ({
+      ...i,
+      deliveryFee: i.deliveryFee ?? 0,
+      star: i.star ?? '--'
+    }));
     render();
   });
 }
 
 scanBtn.addEventListener('click', scanPage);
-sortMode.addEventListener('change', render);
-filterInput.addEventListener('input', render);
+sortPriceToggle.addEventListener('change', render);

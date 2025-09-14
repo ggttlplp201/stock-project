@@ -7,20 +7,29 @@
 </head>
 <body>
   <header>
-    <h2>🍔 Food Delivery Price Scout</h2>
+    <div class="header-row">
+      <span class="search-icon">🔍</span>
+      <div>
+        <div class="main-title">Food Delivery Price Scout</div>
+        <div class="subtitle">Find the lowest price and fastest delivery</div>
+      </div>
+    </div>
   </header>
-  <div class="controls">
-    <button id="scanBtn" class="btn">Scan Page</button>
-    <select id="sortMode">
-      <option value="price">Lowest Price</option>
-      <option value="eta">Fastest ETA</option>
-    </select>
-    <input id="filterInput" type="text" placeholder="Filter by name..." />
+  <button id="scanBtn" class="btn scan-btn">
+    <span class="search-icon">🔍</span> Scan Page
+  </button>
+  <hr class="divider">
+  <div class="controls-row">
+    <label class="pill-toggle">
+      <input type="checkbox" id="sortPriceToggle" checked>
+      <span class="pill-label">Sort by Price</span>
+    </label>
+    <span id="foundCount" class="found-badge">0 found</span>
   </div>
   <div id="results"></div>
   <div id="error" class="error"></div>
   <footer>
-    <small>Supports DoorDash, UberEats, Grubhub</small>
+    <small class="footer-note">Supports DoorDash, UberEats, Grubhub</small>
   </footer>
   <script src="popup.js"></script>
 </body>
