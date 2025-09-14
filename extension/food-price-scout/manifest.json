@@ -20,7 +20,7 @@
     "service_worker": "service_worker.js"
   },
   "host_permissions": [
-    "https://www.doordash.com/",
+    "https://www.doordash.com/home",
     "https://www.ubereats.com/",
     "https://www.grubhub.com/"
   ],
