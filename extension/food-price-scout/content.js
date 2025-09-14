@@ -4,60 +4,62 @@
 
 function extractNumber(str) {
   if (!str) return null;
-  // Extract first number (supports $12.99, 18–30 min, From $9.49, $0 delivery fee, $2.99 delivery)
   const match = String(str).replace(/,/g, '').match(/([\d]+(\.\d+)?)/);
   return match ? Number(match[1]) : null;
 }
 
-const findCards = () => {
-  const cards = document.querySelectorAll('a[data-anchor-id="StoreCard"], a[data-test="storeCard"], a[href*="/store/"]');
-  const out = [];
+function scrapeDoorDash() {
+  // Safer: only anchors that actually link to stores
+  const cards = Array.from(document.querySelectorAll(
+    'a[data-anchor-id="StoreCard"], a[data-test="storeCard"], a[href*="/store/"]'
+  ));
 
-  cards.forEach(card => {
+  if (!cards.length) return { error: 'No restaurant cards found.' };
+
+  const results = cards.map(card => {
     // Name
-    const nameEl = card.querySelector('h3, h2, [data-test="store-name"]');
-    const name = nameEl ? nameEl.textContent.trim() : null;
-    if (!name) return; // skip if no name
+    const name = card.querySelector('h3, h2, [data-test="store-name"]')
+      ?.textContent?.trim() || null;
 
-    // Image
-    const imgEl = card.querySelector('img');
-    const img = imgEl ? (imgEl.currentSrc || imgEl.src) : null;
+    if (!name) return null; // skip junk links
+
+    // Price (DoorDash doesn’t always show upfront)
+    const priceText = card.querySelector('[data-test*="price"], span, div')
+      ?.textContent || '';
+    const price = extractNumber(priceText);
 
     // ETA
-    const etaEl = card.querySelector('[data-test*="delivery-time"], span, div');
-    const etaMinutes = etaEl ? parseMinutes(etaEl.textContent) : null;
+    const etaText = card.querySelector('[data-test*="delivery-time"], span, div')
+      ?.textContent || '';
+    const etaMinutes = extractNumber(etaText);
 
     // Delivery fee
-    const feeEl = card.querySelector('[data-test*="delivery-fee"], span, div');
-    const deliveryFee = feeEl ? parseMoney(feeEl.textContent) : null;
+    const feeText = card.querySelector('[data-test*="delivery-fee"], span, div')
+      ?.textContent || '';
+    const deliveryFee = extractNumber(feeText);
 
     // Rating
-    const ratingEl = card.querySelector('[data-test*="rating"], span, div');
-    const rating = ratingEl ? parseRating(ratingEl.textContent) : null;
+    const ratingText = card.querySelector('[data-test*="rating"], span, div')
+      ?.textContent || '';
+    const rating = extractNumber(ratingText);
 
-    // Price (DoorDash doesn’t always show upfront — might be null)
-    const priceEl = card.querySelector('[data-test*="price"], span, div');
-    const price = priceEl ? parseMoney(priceEl.textContent) : null;
+    // Image
+    const img = card.querySelector('img')?.currentSrc ||
+                card.querySelector('img')?.src || null;
 
-    out.push({
-      name,
-      img,
-      etaMinutes,
-      deliveryFee,
-      rating,
-      price,
-      href: card.href || null
-    });
-  });
+    // Href
+    const href = card.href || null;
 
-  return out;
-};
+    return { name, price, etaMinutes, deliveryFee, rating, img, href };
+  }).filter(Boolean);
 
+  return { items: results };
+}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SCAN_DOORDASH') {
     try {
-      const result = findCards();
+      const result = scrapeDoorDash();
       sendResponse(result);
     } catch (e) {
       sendResponse({ error: 'Scraping failed: ' + e.message });
