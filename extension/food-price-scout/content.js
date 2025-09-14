@@ -19,11 +19,22 @@ function scrapeDoorDash() {
     cards = Array.from(document.querySelectorAll(
       'div[data-anchor-id*="StoreCard"], div[data-test*="storeCard"], div:has(a[href*="/store/"])'
     ));
-    if (!cards.length) {
-      // Log a sample of the DOM for debugging
-      console.warn('[DoorDash Deal Finder] No restaurant cards found. Sample DOM:', document.body.innerHTML.slice(0, 1000));
-      return { error: 'No restaurant cards found. Try scrolling or updating selectors.' };
-    }
+  }
+
+  // Extra fallback: any anchor or div with a heading and a store link
+  if (!cards.length) {
+    cards = Array.from(document.querySelectorAll(
+      'a[href*="/store/"]:has(h2), a[href*="/store/"]:has(h3), div:has(a[href*="/store/"]:has(h2)), div:has(a[href*="/store/"]:has(h3))'
+    ));
+  }
+
+  if (!cards.length) {
+    // Log a sample of the DOM for debugging
+    console.warn('[DoorDash Deal Finder] No restaurant cards found. Sample DOM:', document.body.innerHTML.slice(0, 2000));
+    // Also log all anchors with /store/ in href
+    const anchors = Array.from(document.querySelectorAll('a[href*="/store/"]'));
+    console.warn('[DoorDash Deal Finder] Found', anchors.length, 'anchors with /store/:', anchors.slice(0,5).map(a => a.outerHTML));
+    return { error: 'No restaurant cards found. Try scrolling, zooming out, or open DevTools (F12) and copy the log for support.' };
   }
 
   // Helper to get text from multiple possible selectors
