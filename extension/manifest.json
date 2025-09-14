@@ -1,16 +1,20 @@
 {
   "manifest_version": 3,
   "name": "DoorDash Deal Finder",
-  "description": "Find the best deals and fastest delivery times on DoorDash listings.",
+  "description": "Find the lowest prices and fastest delivery times on DoorDash.",
   "version": "1.0.0",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DoorDash Deal Finder"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": ["activeTab", "scripting"],
   "host_permissions": ["*://*.doordash.com/*"],
-  "action": {
-    "default_popup": "popup.html"
-  },
-  "background": {
-    "service_worker": "background.js"
-  },
   "content_scripts": [
     {
       "matches": ["*://*.doordash.com/*"],
@@ -19,4 +23,3 @@
     }
   ]
 }
-
