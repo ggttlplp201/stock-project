@@ -1,237 +1,153 @@
-// content.js — resilient DoorDash listing scraper
+// content.js — resilient scraper for DoorDash listing/search pages
 
 (() => {
-  // ====== Utilities ======
+  // ---------- helpers ----------
   const $$ = (root, sel) => Array.from(root.querySelectorAll(sel));
-
-  // Shallow shadow search: scan all custom elements that expose a shadowRoot and query inside
-  const queryAllDeepShallow = (selectorList) => {
-    const selectors = Array.isArray(selectorList) ? selectorList : [selectorList];
-    const found = new Set();
-    const results = [];
-
-    const push = (el) => {
-      if (!el) return;
-      if (found.has(el)) return;
-      found.add(el);
-      results.push(el);
-    };
-
-    // normal DOM
-    selectors.forEach(sel => $$(document, sel).forEach(push));
-
-    // shallow shadow DOM sweep (do not recurse deeply to avoid perf spikes)
-    const withShadow = $$(
-      document,
-      '*'
-    ).filter(el => el.shadowRoot && el.shadowRoot instanceof ShadowRoot);
-
-    withShadow.forEach(host => {
-      selectors.forEach(sel => $$(host.shadowRoot, sel).forEach(push));
-    });
-
-    return results;
-  };
-
-  const parseMoney = (text) => {
-    if (!text) return null;
-    const m = String(text).replace(/\u00A0/g, ' ').match(/\$?\s*([0-9]+(?:\.[0-9]{1,2})?)/);
-    return m ? Number(m[1]) : null;
-  };
-
-  const parseMinutes = (text) => {
-    if (!text) return null;
-    const m = String(text).match(/(\d{1,3})(?:\s*[–-]\s*(\d{1,3}))?\s*m/i);
-    return m ? Number(m[1]) : null; // lower bound
-  };
-
-  const parseRating = (text) => {
-    if (!text) return null;
-    const m = String(text).match(/(\d\.\d)/);
-    return m ? Number(m[1]) : null;
-  };
 
   const isVisible = (el) => {
     const r = el.getBoundingClientRect();
-    const style = getComputedStyle(el);
-    return r.width > 80 && r.height > 40 && style.visibility !== 'hidden' && style.display !== 'none';
+    const cs = getComputedStyle(el);
+    return r.width > 100 && r.height > 60 && cs.display !== 'none' && cs.visibility !== 'hidden';
   };
 
-  // ====== Robust waiter ======
-  const waitForCards = (timeoutMs = 4000) =>
+  // Accept $ or CA$ (or other 2–3 letter codes) and "Free"
+  const parseMoney = (txt) => {
+    if (!txt) return null;
+    const s = String(txt).replace(/\u00A0/g, ' ').trim();
+    if (/free/i.test(s)) return 0;
+    // matches "$9.99", "CA$ 9.99", "CA$9.99"
+    const m = s.match(/(?:[A-Z]{1,3}\s*\$|\$)?\s*([0-9]+(?:\.[0-9]{1,2})?)/);
+    return m ? Number(m[1]) : null;
+  };
+
+  const parseMinutes = (txt) => {
+    if (!txt) return null;
+    const m = String(txt).match(/(\d{1,3})(?:\s*[–-]\s*\d{1,3})?\s*m/i);
+    return m ? Number(m[1]) : null; // use lower bound
+  };
+
+  const parseRating = (txt) => {
+    if (!txt) return null;
+    const m = String(txt).match(/(\d\.\d)/);
+    return m ? Number(m[1]) : null;
+  };
+
+  // --------- wait for UI to render ----------
+  const waitForListings = (timeout = 4500) =>
     new Promise((resolve) => {
-      const tryGet = () => {
-        const nodes = findCardNodes();
+      const tryNow = () => {
+        const nodes = findCandidateCards();
         if (nodes.length) return resolve(nodes);
       };
-
-      // first quick check
-      tryGet();
-
-      const obs = new MutationObserver(() => tryGet());
+      tryNow();
+      const obs = new MutationObserver(tryNow);
       obs.observe(document.documentElement, { childList: true, subtree: true });
-
-      const t = setTimeout(() => {
+      setTimeout(() => {
         obs.disconnect();
-        resolve(findCardNodes()); // may be empty
-      }, timeoutMs);
+        resolve(findCandidateCards()); // may be empty
+      }, timeout);
     });
 
-  // ====== Core: find card containers/anchors on listing page ======
-  function findCardNodes() {
-    // DoorDash frequently changes test ids—cover many variants
+  // --------- find card containers (anchor or role=link) ----------
+  function findCandidateCards() {
     const selectors = [
-      // typical anchor around a card
+      // Direct anchors
+      'a[href*="/store/"]',
       'a[data-anchor-id*="StoreCard"]',
       'a[data-testid*="store-card"]',
-      'a[href*="/store/"]',
-      'a[href*="/business/"]',
-      // block that contains name and info (fallback)
-      '[data-test="storeCard"] a',
-      '[data-testid="StoreCard"] a',
-      // very generic fallback: article/section cards with a link inside
+      // DoorDash often uses <div role="link"> for cards
+      '[role="link"][data-testid*="store"]',
+      '[role="link"][aria-label*="store"]',
+      // Generic card groupings with a link inside
       'article a[href*="/store/"]',
       'section a[href*="/store/"]'
     ];
 
-    // Collect candidate anchors and filter to visible
-    const anchors = queryAllDeepShallow(selectors).filter(isVisible);
+    // Collect both anchors and role="link" blocks
+    const nodes = new Set();
+    selectors.forEach(sel => $$(document, sel).forEach(n => nodes.add(n)));
 
-    // Deduplicate by href
-    const seen = new Set();
-    const unique = anchors.filter(a => {
-      const href = a.href || a.getAttribute('href') || '';
-      if (!href) return false;
-      if (seen.has(href)) return false;
-      seen.add(href);
-      return true;
-    });
+    // If we still didn't get anything, heuristically use headings on grid cards
+    if (!nodes.size) {
+      $$(
+        document,
+        'h3, h2'
+      ).forEach(h => {
+        const card = h.closest('a, [role="link"], article, section, div');
+        if (card && isVisible(card)) nodes.add(card);
+      });
+    }
 
-    return unique;
+    return Array.from(nodes).filter(isVisible);
   }
 
-  // Extract info from a single card anchor/container
-  function extractFromCard(anchor) {
-    const container = anchor;
-
-    // NAME
+  // --------- extract fields from a card ----------
+  function extractFromCard(card) {
+    // Name
     const nameEl =
-      container.querySelector('h3, h2, [data-test="store-name"], [data-testid*="store-name"], [data-telemetry-id*="StoreCardName"]') ||
-      container.querySelector('div[aria-label], span[aria-label]'); // fallback
-    let name = nameEl?.textContent?.trim() || '';
+      card.querySelector('h3, h2, [data-test="store-name"], [data-testid*="store-name"]') ||
+      card;
+    let name = (nameEl.textContent || '').trim();
+    // Sometimes anchor/role node has aria-label with name
+    if (!name && card.getAttribute('aria-label')) name = card.getAttribute('aria-label').trim();
+    if (!name || name.length < 2) return null;
 
-    // Some cards put the name in an aria-label on the anchor
-    if (!name && anchor.getAttribute('aria-label')) {
-      name = anchor.getAttribute('aria-label').trim();
-    }
-    if (!name) return null; // not a valid card
-
-    // IMAGE
-    const imgEl = container.querySelector('img') || container.querySelector('picture img');
+    // Image
+    const imgEl = card.querySelector('img') || card.querySelector('picture img');
     const img = imgEl ? (imgEl.currentSrc || imgEl.src || null) : null;
 
-    // TEXT POOL for heuristic matches
-    const textPool = [container.textContent || ''].join(' ').replace(/\s+/g, ' ');
-
-    // PRICE (look for "From $x.xx" or any $x.xx near the top row)
-    let priceNode =
-      container.querySelector('[data-test*="price"], [data-testid*="price"], [aria-label*="$"], [aria-label*="price"]') ||
-      Array.from(container.querySelectorAll('span,div')).find(x => /\$\s*\d/.test(x.textContent));
-    const price = parseMoney(priceNode?.textContent || '');
-
-    // ETA
-    let etaNode =
-      container.querySelector('[data-test*="delivery-time"], [data-testid*="delivery-time"], [aria-label*="min"]') ||
-      Array.from(container.querySelectorAll('span,div')).find(x => /\d+\s*(?:–|-)?\s*\d*\s*m/i.test(x.textContent));
-    const etaMinutes = parseMinutes(etaNode?.textContent || '');
-
-    // DELIVERY FEE
-    let feeNode =
-      container.querySelector('[data-test*="delivery-fee"], [data-testid*="delivery-fee"], [aria-label*="delivery"]') ||
-      Array.from(container.querySelectorAll('span,div')).find(x => /\$\s*\d+(?:\.\d{2})?\s*(?:delivery|fee)/i.test(x.textContent));
-    let deliveryFee = parseMoney(feeNode?.textContent || '');
-    if (deliveryFee === null) {
-      const near = Array.from(container.querySelectorAll('span,div'))
-        .find(x => /delivery/i.test(x.textContent) && /\$\s*\d/.test(x.textContent));
-      deliveryFee = parseMoney(near?.textContent || '');
+    // Href (for role="link", look for inner anchor)
+    let href = card.href || card.getAttribute?.('href') || null;
+    if (!href) {
+      const a = card.querySelector('a[href*="/store/"]');
+      if (a) href = a.href;
     }
 
-    // RATING
-    let ratingNode =
-      container.querySelector('[data-test*="rating"], [data-testid*="rating"], [aria-label*="rating"]') ||
-      Array.from(container.querySelectorAll('span,div')).find(x => /\d\.\d/.test(x.textContent) && /⭐|star|rating/i.test((x.closest('*')?.textContent || '')));
-    const rating =
-      parseRating(ratingNode?.textContent || '') ||
-      parseRating(textPool);
+    // Build a small text pool from children to search for meta chips
+    const pool = (card.textContent || '').replace(/\s+/g, ' ');
 
-    // HREF
-    const href = anchor.href || anchor.getAttribute('href') || null;
+    // ETA like "18–30 min" or "32 min"
+    const etaNode =
+      card.querySelector('[data-testid*="delivery-time"], [data-test*="delivery-time"], [aria-label*="min"]') ||
+      Array.from(card.querySelectorAll('span,div')).find(x => /\d+\s*(?:–|-)?\s*\d*\s*m/i.test(x.textContent));
+    const etaMinutes = parseMinutes(etaNode?.textContent || pool);
+
+    // Delivery fee: prefer text near "delivery"
+    let feeNode =
+      card.querySelector('[data-testid*="delivery-fee"], [data-test*="delivery-fee"], [aria-label*="delivery"]') ||
+      Array.from(card.querySelectorAll('span,div')).find(x => /delivery\s*fee|delivery/i.test(x.textContent) && /(?:\$|[A-Z]{1,3}\s*\$)\s*\d/.test(x.textContent));
+    let deliveryFee = parseMoney(feeNode?.textContent || '');
+    if (deliveryFee === null) {
+      // Some cards say "CA$0 delivery fee over CA$15" -> parse first money in that phrase
+      const feePhrase = Array.from(card.querySelectorAll('span,div')).map(n => n.textContent).find(t => /delivery/i.test(t));
+      if (feePhrase) deliveryFee = parseMoney(feePhrase);
+    }
+
+    // Price (many listing cards won't have one; leave null)
+    const priceNode =
+      card.querySelector('[data-test*="price"], [data-testid*="price"], [aria-label*="price"]') ||
+      Array.from(card.querySelectorAll('span,div')).find(x => /\b(?:From|Starting at)\b.*\$/i.test(x.textContent)) ||
+      Array.from(card.querySelectorAll('span,div')).find(x => /^\s*(?:CA\$|\$)\s*\d/.test(x.textContent));
+    const price = parseMoney(priceNode?.textContent || '');
+
+    // Rating
+    const ratingNode =
+      card.querySelector('[data-test*="rating"], [data-testid*="rating"], [aria-label*="rating"]') ||
+      Array.from(card.querySelectorAll('span,div')).find(x => /\d\.\d/.test(x.textContent) && /★|⭐|rating/i.test((x.closest('*')?.textContent || '')));
+    const rating = parseRating(ratingNode?.textContent || pool);
 
     return { name, price, etaMinutes, deliveryFee, rating, img, href };
   }
 
-  // Optional: parse Next.js data as a last resort (DoorDash uses Next)
-  function tryParseNextData() {
-    try {
-      const script = document.getElementById('__NEXT_DATA__');
-      if (!script?.textContent) return [];
-      const json = JSON.parse(script.textContent);
+  async function scan({ debug = false } = {}) {
+    const cards = await waitForListings(5000);
+    if (debug) console.log('[DDF] candidate nodes:', cards.length);
 
-      // Heuristic deep search for objects that look like stores
-      const stores = [];
-      const walk = (v) => {
-        if (!v) return;
-        if (Array.isArray(v)) return v.forEach(walk);
-        if (typeof v === 'object') {
-          const keys = Object.keys(v);
-          const hasName = keys.includes('name') || keys.includes('storeName') || keys.includes('title');
-          const hasUrl = keys.includes('url') || keys.includes('href') || keys.includes('slug');
-          const looksStore = hasName && (keys.some(k => /rating|price|fee|delivery|eta/i.test(k)));
-          if (looksStore) {
-            const name = v.name || v.storeName || v.title;
-            const href = v.url || v.href || (v.slug ? `/store/${v.slug}` : null);
-            const rating = v.rating || v.starRating || null;
-            const price = v.price ? Number(v.price) : null;
-            const etaMinutes = v.etaMinutes || (typeof v.eta === 'string' ? parseMinutes(v.eta) : null);
-            const deliveryFee = v.deliveryFee ? Number(v.deliveryFee) : (typeof v.fee === 'string' ? parseMoney(v.fee) : null);
-            const img = v.imageUrl || v.img || null;
-            if (name) stores.push({ name, price, etaMinutes, deliveryFee, rating, img, href });
-          }
-          for (const k in v) walk(v[k]);
-        }
-      };
-      walk(json);
-      // Deduplicate on name+href
-      const seen = new Set();
-      return stores.filter(s => {
-        const key = `${s.name}|${s.href || ''}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    } catch {
-      return [];
-    }
-  }
-
-  async function scanListing({ debug = false } = {}) {
-    const anchors = await waitForCards(4500);
-
-    if (debug) console.log('[DDF] anchors found:', anchors.length);
-
-    let rows = anchors
+    let rows = cards
       .map(extractFromCard)
-      .filter(Boolean)
-      .filter(r => !!r.name && isFinite((r.price ?? 0)) || !!r.href); // keep if name present; price may be null
+      .filter(Boolean);
 
-    // Fallback to Next.js data if DOM yielded nothing
-    if (!rows.length) {
-      const nextRows = tryParseNextData();
-      if (debug) console.log('[DDF] __NEXT_DATA__ rows:', nextRows.length);
-      rows = nextRows;
-    }
-
-    // Final polish: visible only, dedupe by href then name
+    // Deduplicate: href first, then name
     const seenHref = new Set();
     const seenName = new Set();
     rows = rows.filter(r => {
@@ -246,25 +162,19 @@
     return rows;
   }
 
-  // Message bridge
+  // ---------- message bridge ----------
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type === 'DD_PING') { sendResponse({ ok: true }); return true; }
     if (msg?.type === 'DD_SCAN') {
       (async () => {
         try {
-          const rows = await scanListing({ debug: !!msg.debug });
+          const rows = await scan({ debug: !!msg.debug });
           sendResponse({ ok: true, rows });
         } catch (e) {
           sendResponse({ ok: false, error: String(e?.message || e) });
         }
       })();
-      return true; // keep channel open
+      return true;
     }
   });
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === 'DD_PING') {
-    sendResponse({ ok: true });
-    return true;
-  }
-});
-
 })();

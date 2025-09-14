@@ -31,6 +31,13 @@ function computeLowest(rows){
   });
   return idx;
 }
+async function injectContentIfNeeded(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'DD_PING' });
+  } catch {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+  }
+}
 
 function render(rows){
   resultsEl.innerHTML = '';
@@ -107,20 +114,6 @@ function sortRows(rows){
     const eb = (typeof b.etaMinutes === 'number') ? b.etaMinutes : Number.POSITIVE_INFINITY;
     return ea - eb;
   });
-}
-
-async function injectContentIfNeeded(tabId) {
-  try {
-    // Try a no-op message; if it fails, we'll inject.
-    await chrome.tabs.sendMessage(tabId, { type: 'DD_PING' }, { timeout: 300 });
-    return; // listener exists
-  } catch {
-    // No listener → inject
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['content.js']
-    });
-  }
 }
 
 async function scan(){
