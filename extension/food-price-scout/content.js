@@ -57,7 +57,7 @@ const findCards = () => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SCAN_DOORDASH') {
     try {
-      const result = scrapeDoorDash();
+      const result = findCards();
       sendResponse(result);
     } catch (e) {
       sendResponse({ error: 'Scraping failed: ' + e.message });
