@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>DoorDash Deal Finder</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <span style="font-size:1.5rem;">🔎</span>
+      <div>
+        <div style="font-size:1.15rem;font-weight:700;">DoorDash Deal Finder</div>
+        <div style="color:#888;font-size:.98rem;">Find the best deals and fastest delivery times</div>
+      </div>
+    </div>
+  </header>
+  <button id="scanBtn" class="btn" style="width:100%;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:1.08rem;">
+    <span style="font-size:1.2rem;">🔎</span> Scan DoorDash Page
+  </button>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+    <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+      <input type="checkbox" id="sortPriceToggle" style="accent-color:#222;width:22px;height:22px;">
+      Sort by Price
+    </label>
+    <span id="foundCount" style="background:#f3f4f8;color:#222;padding:4px 12px;border-radius:8px;font-size:.98rem;font-weight:600;">0 found</span>
+  </div>
+  <div id="results"></div>
+  <div id="error" class="error"></div>
+  <footer>
+    <small style="color:#888;">Supports DoorDash listing/search pages</small>
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>
