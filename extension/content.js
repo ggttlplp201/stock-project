@@ -24,6 +24,7 @@ const parseMinutes = (txt) => {
   return m ? Number(m[1]) : null; // lower bound if range
 };
 
+
   const parseRating = (txt) => {
     if (!txt) return null;
     const m = String(txt).match(/(\d\.\d)/);
@@ -117,6 +118,7 @@ const etaNode =
   card.querySelector('[data-testid*="delivery-time"], [data-test*="delivery-time"], [aria-label*="min"]') ||
   Array.from(card.querySelectorAll('span,div')).find(x => MINUTES_RE.test(x.textContent));
 const etaMinutes = parseMinutes(etaNode?.textContent || '');
+
 
     // Delivery fee
     let feeNode =
