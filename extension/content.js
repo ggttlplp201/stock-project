@@ -16,11 +16,14 @@
     const m = s.match(/(?:[A-Z]{1,3}\s*\$|\$)?\s*([0-9]+(?:\.[0-9]{1,2})?)/);
     return m ? Number(m[1]) : null;
   };
-  const parseMinutes = (txt) => {
-    if (!txt) return null;
-    const m = String(txt).match(/(\d{1,3})(?:\s*[–-]\s*\d{1,3})?\s*m/i);
-    return m ? Number(m[1]) : null;
-  };
+  // Minutes must include 'min' / 'mins' / 'minute(s)' — never match 'mi'
+const MINUTES_RE = /(\d{1,3})(?:\s*[–-]\s*(\d{1,3}))?\s*(?:min(?:ute)?s?)\b/i;
+const parseMinutes = (txt) => {
+  if (!txt) return null;
+  const m = String(txt).match(MINUTES_RE);
+  return m ? Number(m[1]) : null; // lower bound if range
+};
+
   const parseRating = (txt) => {
     if (!txt) return null;
     const m = String(txt).match(/(\d\.\d)/);
@@ -109,10 +112,11 @@
     const pool = (card.textContent || '').replace(/\s+/g, ' ');
 
     // ETA
-    const etaNode =
-      card.querySelector('[data-testid*="delivery-time"], [data-test*="delivery-time"], [aria-label*="min"]') ||
-      Array.from(card.querySelectorAll('span,div')).find(x => /\d+\s*(?:–|-)?\s*\d*\s*m/i.test(x.textContent));
-    const etaMinutes = parseMinutes(etaNode?.textContent || pool);
+    // ETA like "32 min" or "18–30 mins" (strictly 'min' word)
+const etaNode =
+  card.querySelector('[data-testid*="delivery-time"], [data-test*="delivery-time"], [aria-label*="min"]') ||
+  Array.from(card.querySelectorAll('span,div')).find(x => MINUTES_RE.test(x.textContent));
+const etaMinutes = parseMinutes(etaNode?.textContent || '');
 
     // Delivery fee
     let feeNode =
