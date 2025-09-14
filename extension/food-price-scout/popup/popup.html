@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Food Delivery Price Scout</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h2>🍔 Food Delivery Price Scout</h2>
+  </header>
+  <div class="controls">
+    <button id="scanBtn" class="btn">Scan Page</button>
+    <select id="sortMode">
+      <option value="price">Lowest Price</option>
+      <option value="eta">Fastest ETA</option>
+    </select>
+    <input id="filterInput" type="text" placeholder="Filter by name..." />
+  </div>
+  <div id="results"></div>
+  <div id="error" class="error"></div>
+  <footer>
+    <small>Supports DoorDash, UberEats, Grubhub</small>
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>
