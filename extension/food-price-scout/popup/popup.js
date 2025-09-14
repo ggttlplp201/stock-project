@@ -43,6 +43,26 @@ function scanPage() {
     }));
     render();
   });
+
+  // popup/popup.js
+async function scan() {
+  metaEl.textContent = 'Scanning…';
+  let t;
+  const timeout = new Promise(res => t = setTimeout(() =>
+    res({ ok:false, error:'Timeout: content script not responding' }), 6000));
+  const resp = await Promise.race([chrome.runtime.sendMessage({type:'SCAN_PAGE'}), timeout]);
+  clearTimeout(t);
+
+  if (!resp?.ok) {
+    metaEl.textContent = 'Error: ' + (resp.error || 'Unknown');
+    listEl.innerHTML = ''; bestEl.textContent = '';
+    return;
+  }
+  const { platform, items=[] } = resp.data || {};
+  metaEl.textContent = `${platform ?? 'unknown'} • ${items.length} items`;
+  render(items);
+}
+
 }
 
 scanBtn.addEventListener('click', scanPage);

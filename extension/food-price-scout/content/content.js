@@ -26,4 +26,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ error: e.message });
     }
   }
+
+  // content/content.js (source before bundling)
+
+// avoid double-registering if injected twice
+if (!window.__PRICE_SCOUT_READY__) {
+  window.__PRICE_SCOUT_READY__ = true;
+
+  // … your extraction code + MutationObserver …
+
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type === 'PING') {
+      sendResponse({ ok: true, at: Date.now() });
+      return; // no async
+    }
+    if (msg?.type === 'EXTRACT_ITEMS') {
+      // return whatever you have now (don’t block)
+      const result = { platform: adapter?.id ?? null, items: extractNow() };
+      sendResponse(result);
+      return; // no async
+    }
+  });
+}
+
 });

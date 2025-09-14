@@ -19,10 +19,23 @@
   "background": {
     "service_worker": "service_worker.js"
   },
-  "host_permissions": [
-    "https://www.doordash.com/home",
-    "https://www.ubereats.com/",
-    "https://www.grubhub.com/"
-  ],
-  "permissions": ["scripting", "activeTab"]
+  "permissions": ["activeTab", "scripting"],
+"host_permissions": [
+  "https://*.doordash.com/*",
+  "https://*.ubereats.com/*",
+  "https://*.grubhub.com/*"
+],
+"content_scripts": [
+  {
+    "matches": [
+      "https://*.doordash.com/*",
+      "https://*.ubereats.com/*",
+      "https://*.grubhub.com/*"
+    ],
+    "js": ["content/bundle.js"],
+    "run_at": "document_idle",
+    "all_frames": true
+  }
+]
+
 }
