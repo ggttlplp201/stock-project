@@ -115,6 +115,26 @@ const extractDeliveryFeeFromText = (txt) => {
   }
 
   function extractFromCard(card) {
+    // Delivery fee (strict to avoid capturing rating)
+let deliveryFee = null;
+
+// gather likely fee phrases from within the card
+const feeCandidates = [];
+const feeSel = card.querySelector('[data-testid*="delivery-fee"], [data-test*="delivery-fee"]');
+if (feeSel?.textContent) feeCandidates.push(feeSel.textContent);
+
+// any span/div mentioning "delivery"
+Array.from(card.querySelectorAll('span,div')).forEach(n => {
+  const t = n.textContent || '';
+  if (/delivery/i.test(t)) feeCandidates.push(t);
+});
+
+// parse in priority order
+for (const t of feeCandidates) {
+  const val = extractDeliveryFeeFromText(t);
+  if (val !== null) { deliveryFee = val; break; }
+}
+
     const { name, displayName } = extractName(card);
     if (!displayName) return null;
 
