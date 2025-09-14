@@ -5,7 +5,7 @@
   "description": "Find the lowest prices and fastest delivery times on DoorDash.",
   "action": { "default_popup": "popup.html" },
   "permissions": ["activeTab", "scripting", "tabs"],
-  "host_permissions": ["*://*.doordash.com/*"]
+  "host_permissions": ["*://*.doordash.com/home"]
   
 
 }
