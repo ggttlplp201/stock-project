@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
   "name": "DoorDash Deal Finder",
-  "description": "Find the best deals and fastest delivery times on DoorDash.",
+  "description": "Find the best deals and fastest delivery times on DoorDash listings.",
   "version": "1.0.0",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": ["*://*.doordash.com/*"],
   "action": {
-    "default_popup": "popup/popup.html"
+    "default_popup": "popup.html"
   },
   "background": {
-    "service_worker": "service_worker.js"
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
@@ -19,3 +19,4 @@
     }
   ]
 }
+

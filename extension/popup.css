@@ -1,0 +1,205 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  min-width: 340px;
+  max-width: 400px;
+}
+:root {
+  --bg: #fff;
+  --fg: #222;
+  --card-bg: #f7f7fa;
+  --card-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  --chip-bg: #ececf0;
+  --chip-fg: #333;
+  --badge-bg: #ffe066;
+  --badge-fg: #7a5c00;
+  --pill-bg: #e0e7ff;
+  --pill-fg: #3730a3;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18181b;
+    --fg: #f3f3f7;
+    --card-bg: #23232a;
+    --card-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    --chip-bg: #2d2d36;
+    --chip-fg: #e3e3e7;
+    --badge-bg: #7a5c00;
+    --badge-fg: #ffe066;
+    --pill-bg: #3730a3;
+    --pill-fg: #e0e7ff;
+  }
+}
+header {
+  padding: 1rem 1rem 0.5rem 1rem;
+  text-align: center;
+}
+.subtitle {
+  font-size: 0.95rem;
+  color: #888;
+  margin-top: 0.2rem;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 1rem;
+}
+#scan-btn {
+  flex: 1;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 1.5rem;
+  font-size: 1rem;
+  padding: 0.6rem 1.2rem;
+  box-shadow: var(--card-shadow);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#scan-btn:hover {
+  background: #4338ca;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+}
+.toggle-label {
+  font-size: 0.95rem;
+}
+.toggle input {
+  display: none;
+}
+.slider {
+  width: 32px;
+  height: 18px;
+  background: #ccc;
+  border-radius: 18px;
+  position: relative;
+  transition: background 0.2s;
+}
+.slider:before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.toggle input:checked + .slider {
+  background: #6366f1;
+}
+.toggle input:checked + .slider:before {
+  transform: translateX(14px);
+}
+.pill {
+  background: var(--pill-bg);
+  color: var(--pill-fg);
+  border-radius: 1rem;
+  padding: 0.2rem 0.8rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin-left: auto;
+}
+#toast {
+  position: fixed;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #f87171;
+  color: #fff;
+  padding: 0.5rem 1.2rem;
+  border-radius: 1rem;
+  font-size: 1rem;
+  box-shadow: var(--card-shadow);
+  z-index: 100;
+  opacity: 0.95;
+  display: none;
+}
+#toast[hidden] {
+  display: none;
+}
+main {
+  padding: 0.5rem 1rem 1rem 1rem;
+}
+.card {
+  background: var(--card-bg);
+  border-radius: 1.2rem;
+  box-shadow: var(--card-shadow);
+  margin-bottom: 1rem;
+  padding: 0.7rem 1rem 0.7rem 1rem;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+  outline: none;
+}
+.card:focus, .card:hover {
+  box-shadow: 0 4px 16px rgba(99,102,241,0.18);
+}
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.5rem;
+}
+.thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 0.7rem;
+  background: #ddd;
+}
+.name {
+  flex: 1;
+  font-size: 1.08rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge {
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  border-radius: 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.2rem 0.7rem;
+  margin-left: 0.3rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.chips {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.chip {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  border-radius: 1rem;
+  padding: 0.18rem 0.7rem;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 500;
+}
+.chip svg {
+  width: 1em;
+  height: 1em;
+  vertical-align: middle;
+}
+.empty {
+  text-align: center;
+  color: #888;
+  margin-top: 2rem;
+  font-size: 1.05rem;
+}
