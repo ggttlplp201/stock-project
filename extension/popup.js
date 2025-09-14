@@ -109,6 +109,20 @@ function sortRows(rows){
   });
 }
 
+async function injectContentIfNeeded(tabId) {
+  try {
+    // Try a no-op message; if it fails, we'll inject.
+    await chrome.tabs.sendMessage(tabId, { type: 'DD_PING' }, { timeout: 300 });
+    return; // listener exists
+  } catch {
+    // No listener → inject
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    });
+  }
+}
+
 async function scan(){
   clearAlert();
   resultsEl.innerHTML = '';
@@ -116,13 +130,17 @@ async function scan(){
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !/^https?:\/\/(www\.)?doordash\.com/i.test(tab.url || '')) {
+    const url = tab?.url || '';
+    if (!tab || !/^https?:\/\/([\w-]+\.)*doordash\.com/i.test(url)) {
       setAlert('Open a DoorDash listing page (restaurants near you) and click “Scan”.');
       countPill.textContent = '0 found';
       return;
     }
 
-    const resp = await chrome.tabs.sendMessage(tab.id, { type: 'DD_SCAN' });
+    // Ensure the content script exists, then message it.
+    await injectContentIfNeeded(tab.id);
+
+    const resp = await chrome.tabs.sendMessage(tab.id, { type: 'DD_SCAN', debug: true });
     if (!resp?.ok) throw new Error(resp?.error || 'Unknown content-script error.');
 
     rawRows = resp.rows || [];
@@ -132,6 +150,7 @@ async function scan(){
     countPill.textContent = '0 found';
   }
 }
+
 
 scanBtn.addEventListener('click', scan);
 sortPrice.addEventListener('change', () => {

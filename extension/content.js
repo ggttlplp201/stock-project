@@ -260,4 +260,11 @@
       return true; // keep channel open
     }
   });
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'DD_PING') {
+    sendResponse({ ok: true });
+    return true;
+  }
+});
+
 })();
