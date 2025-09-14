@@ -21,6 +21,11 @@
     </header>
 
     <div class="toolbar">
+      <div class="segmented" id="sortGroup" role="tablist" aria-label="Sort results">
+        <button class="seg-btn active" data-mode="fee" role="tab" aria-selected="true">Lowest Fee</button>
+        <button class="seg-btn" data-mode="eta" role="tab" aria-selected="false">Fastest</button>
+        <button class="seg-btn" data-mode="rating" role="tab" aria-selected="false">Best Rating</button>
+      </div>
       <span class="count-pill" id="countPill">0 found</span>
     </div>
 

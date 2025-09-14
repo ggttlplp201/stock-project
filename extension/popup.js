@@ -1,16 +1,25 @@
-// popup.js — show only Delivery Fee, ETA, Rating, Rating Count
+// popup.js — sorting by Lowest Fee / Fastest / Best Rating
 
 const scanBtn = document.getElementById('scanBtn');
 const countPill = document.getElementById('countPill');
 const resultsEl = document.getElementById('results');
 const alertEl = document.getElementById('alert');
+const sortGroup = document.getElementById('sortGroup');
 
 let rawRows = [];
+let sortMode = 'fee'; // 'fee' | 'eta' | 'rating'
 
 const fmtFee = (n) => (typeof n === 'number')
   ? (n === 0 ? 'Free' : `$${n.toFixed(2)}`)
   : null;
 const fmtEta = (m) => (typeof m === 'number') ? `${m}m` : null;
+
+// Normalize ratingCount into a number for tie-breaks
+const ratingCountNum = (v) => {
+  if (!v) return 0;
+  const n = parseInt(String(v).replace(/[^\d]/g, ''), 10);
+  return Number.isFinite(n) ? n : 0;
+};
 
 function setAlert(msg){ alertEl.textContent = msg; alertEl.classList.remove('hidden'); }
 function clearAlert(){ alertEl.classList.add('hidden'); }
@@ -18,7 +27,6 @@ function clearAlert(){ alertEl.classList.add('hidden'); }
 function render(rows){
   resultsEl.innerHTML = '';
   countPill.textContent = `${rows.length} found`;
-
   if (!rows.length){
     setAlert('No restaurants detected. Open a DoorDash listing/search page and try again.');
     return;
@@ -30,12 +38,10 @@ function render(rows){
     a.className = 'card-item linkish';
     if (r.href) { a.href = r.href; a.target = '_blank'; a.rel = 'noreferrer'; }
 
-    // Title only (clean)
     const title = document.createElement('div');
     title.className = 'title';
     title.textContent = r.displayName || r.name || 'Restaurant';
 
-    // Chips: Delivery fee, ETA, Rating, Rating Count
     const row2 = document.createElement('div'); row2.className = 'row2';
     const chips = [];
 
@@ -62,6 +68,64 @@ function render(rows){
   });
 }
 
+function sortRows(rows, mode){
+  const list = rows.slice();
+
+  const byFee = (a, b) => {
+    const fa = (typeof a.deliveryFee === 'number') ? a.deliveryFee : Number.POSITIVE_INFINITY;
+    const fb = (typeof b.deliveryFee === 'number') ? b.deliveryFee : Number.POSITIVE_INFINITY;
+    if (fa !== fb) return fa - fb;
+    // tie-breakers: faster ETA, then higher rating, then more ratings
+    const ea = (typeof a.etaMinutes === 'number') ? a.etaMinutes : Number.POSITIVE_INFINITY;
+    const eb = (typeof b.etaMinutes === 'number') ? b.etaMinutes : Number.POSITIVE_INFINITY;
+    if (ea !== eb) return ea - eb;
+    const ra = (typeof a.rating === 'number') ? a.rating : -Infinity;
+    const rb = (typeof b.rating === 'number') ? b.rating : -Infinity;
+    if (ra !== rb) return rb - ra;
+    return ratingCountNum(b.ratingCount) - ratingCountNum(a.ratingCount);
+  };
+
+  const byEta = (a, b) => {
+    const ea = (typeof a.etaMinutes === 'number') ? a.etaMinutes : Number.POSITIVE_INFINITY;
+    const eb = (typeof b.etaMinutes === 'number') ? b.etaMinutes : Number.POSITIVE_INFINITY;
+    if (ea !== eb) return ea - eb;
+    const fa = (typeof a.deliveryFee === 'number') ? a.deliveryFee : Number.POSITIVE_INFINITY;
+    const fb = (typeof b.deliveryFee === 'number') ? b.deliveryFee : Number.POSITIVE_INFINITY;
+    if (fa !== fb) return fa - fb;
+    const ra = (typeof a.rating === 'number') ? a.rating : -Infinity;
+    const rb = (typeof b.rating === 'number') ? b.rating : -Infinity;
+    if (ra !== rb) return rb - ra;
+    return ratingCountNum(b.ratingCount) - ratingCountNum(a.ratingCount);
+  };
+
+  const byRating = (a, b) => {
+    const ra = (typeof a.rating === 'number') ? a.rating : -Infinity;
+    const rb = (typeof b.rating === 'number') ? b.rating : -Infinity;
+    if (ra !== rb) return rb - ra;
+    // tie-breakers: more ratings, then lower fee, then faster ETA
+    const ca = ratingCountNum(a.ratingCount);
+    const cb = ratingCountNum(b.ratingCount);
+    if (ca !== cb) return cb - ca;
+    const fa = (typeof a.deliveryFee === 'number') ? a.deliveryFee : Number.POSITIVE_INFINITY;
+    const fb = (typeof b.deliveryFee === 'number') ? b.deliveryFee : Number.POSITIVE_INFINITY;
+    if (fa !== fb) return fa - fb;
+    const ea = (typeof a.etaMinutes === 'number') ? a.etaMinutes : Number.POSITIVE_INFINITY;
+    const eb = (typeof b.etaMinutes === 'number') ? b.etaMinutes : Number.POSITIVE_INFINITY;
+    return ea - eb;
+  };
+
+  switch (mode) {
+    case 'eta': return list.sort(byEta);
+    case 'rating': return list.sort(byRating);
+    case 'fee':
+    default: return list.sort(byFee);
+  }
+}
+
+function refresh(){
+  render(sortRows(rawRows, sortMode));
+}
+
 async function injectContentIfNeeded(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'DD_PING' });
@@ -83,14 +147,11 @@ async function scan(){
       countPill.textContent = '0 found';
       return;
     }
-
     await injectContentIfNeeded(tab.id);
     const resp = await chrome.tabs.sendMessage(tab.id, { type: 'DD_SCAN', debug: true });
     if (!resp?.ok) throw new Error(resp?.error || 'Unknown content-script error.');
-
-    // Use rows as-is (no sorting). Rendering will use displayName when present.
     rawRows = resp.rows || [];
-    render(rawRows);
+    refresh();
   } catch (e) {
     setAlert(`Scan failed: ${String(e.message || e)}`);
     countPill.textContent = '0 found';
@@ -98,3 +159,16 @@ async function scan(){
 }
 
 scanBtn.addEventListener('click', scan);
+
+// segmented control
+sortGroup.querySelectorAll('.seg-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    sortMode = btn.dataset.mode;
+    // toggle active states & aria
+    sortGroup.querySelectorAll('.seg-btn').forEach(b => {
+      b.classList.toggle('active', b === btn);
+      b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+    });
+    if (rawRows.length) refresh();
+  });
+});
