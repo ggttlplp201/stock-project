@@ -7,22 +7,37 @@
     const cs = getComputedStyle(el);
     return r.width > 100 && r.height > 60 && cs.display !== 'none' && cs.visibility !== 'hidden';
   };
-
-  // $ or CA$; also accept "Free"
-  const parseMoney = (txt) => {
-    if (!txt) return null;
-    const s = String(txt).replace(/\u00A0/g, ' ').trim();
-    if (/free/i.test(s)) return 0;
-    const m = s.match(/(?:[A-Z]{1,3}\s*\$|\$)?\s*([0-9]+(?:\.[0-9]{1,2})?)/);
-    return m ? Number(m[1]) : null;
-  };
   // Minutes must include 'min' / 'mins' / 'minute(s)' — never match 'mi'
+// Strict minutes: require 'min/mins/minute(s)'
 const MINUTES_RE = /(\d{1,3})(?:\s*[–-]\s*(\d{1,3}))?\s*(?:min(?:ute)?s?)\b/i;
 const parseMinutes = (txt) => {
   if (!txt) return null;
   const m = String(txt).match(MINUTES_RE);
-  return m ? Number(m[1]) : null; // lower bound if range
+  return m ? Number(m[1]) : null;
 };
+
+// Strict currency (requires $ or CA$ etc.)
+const CURRENCY_RE = /(?:[A-Z]{1,3}\s*\$|\$)\s*([0-9]+(?:\.[0-9]{1,2})?)/;
+
+// Delivery-fee specific extractor: looks for "delivery ... $X" or "free"
+const extractDeliveryFeeFromText = (txt) => {
+  if (!txt) return null;
+  const s = String(txt).replace(/\u00A0/g, ' ').toLowerCase();
+
+  // any "free" near 'delivery'
+  if (/delivery[^|]*\bfree\b/.test(s)) return 0;
+
+  // first currency amount after the word "delivery"
+  const after = s.match(/delivery[^$]*?(?:[a-z]{0,3}\s*\$|\$)\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  if (after) return Number(after[1]);
+
+  // fallback: any currency amount in the same phrase containing 'delivery'
+  const inPhrase = s.match(/(?:[a-z]{0,3}\s*\$|\$)\s*([0-9]+(?:\.[0-9]{1,2})?).*delivery|delivery.*(?:[a-z]{0,3}\s*\$|\$)\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  if (inPhrase) return Number(inPhrase[1] || inPhrase[2]);
+
+  return null;
+};
+
 
 
   const parseRating = (txt) => {
@@ -113,22 +128,16 @@ const parseMinutes = (txt) => {
     const pool = (card.textContent || '').replace(/\s+/g, ' ');
 
     // ETA
-    // ETA like "32 min" or "18–30 mins" (strictly 'min' word)
+   
 const etaNode =
   card.querySelector('[data-testid*="delivery-time"], [data-test*="delivery-time"], [aria-label*="min"]') ||
   Array.from(card.querySelectorAll('span,div')).find(x => MINUTES_RE.test(x.textContent));
 const etaMinutes = parseMinutes(etaNode?.textContent || '');
 
 
+
     // Delivery fee
-    let feeNode =
-      card.querySelector('[data-testid*="delivery-fee"], [data-test*="delivery-fee"], [aria-label*="delivery"]') ||
-      Array.from(card.querySelectorAll('span,div')).find(x => /delivery\s*fee|delivery/i.test(x.textContent) && /(?:\$|[A-Z]{1,3}\s*\$)|free/i.test(x.textContent));
-    let deliveryFee = parseMoney(feeNode?.textContent || '');
-    if (deliveryFee === null) {
-      const feePhrase = Array.from(card.querySelectorAll('span,div')).map(n => n.textContent).find(t => /delivery/i.test(t));
-      if (feePhrase) deliveryFee = parseMoney(feePhrase);
-    }
+   
 
     // Rating + rating count
     const rating = parseRating(pool);
