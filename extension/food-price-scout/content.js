@@ -9,72 +9,63 @@ function extractNumber(str) {
 }
 
 function scrapeDoorDash() {
-  // Safer: only anchors that actually link to stores
-  const cards = Array.from(document.querySelectorAll(
+  // Try all known selectors for restaurant cards
+  let cards = Array.from(document.querySelectorAll(
     'a[data-anchor-id="StoreCard"], a[data-test="storeCard"], a[href*="/store/"]'
   ));
 
-  // Debug: log how many cards found and selectors used
   if (!cards.length) {
-    console.warn('[DoorDash Deal Finder] No restaurant cards found. Selectors may need updating.');
-    // Try fallback selectors (for new DoorDash DOMs)
-    const fallbackCards = Array.from(document.querySelectorAll('div[data-anchor-id*="StoreCard"], div[data-test*="storeCard"]'));
-    if (fallbackCards.length) {
-      console.info('[DoorDash Deal Finder] Fallback selectors found', fallbackCards.length, 'cards.');
-      // Try to get anchor parent
-      return { items: fallbackCards.map(card => {
-        const anchor = card.closest('a') || card.querySelector('a[href*="/store/"]');
-        const name = card.querySelector('h3, h2, [data-test="store-name"]')?.textContent?.trim() || null;
-        if (!name) return null;
-        const priceText = card.querySelector('[data-test*="price"], span, div')?.textContent || '';
-        const price = extractNumber(priceText);
-        const etaText = card.querySelector('[data-test*="delivery-time"], span, div')?.textContent || '';
-        const etaMinutes = extractNumber(etaText);
-        const feeText = card.querySelector('[data-test*="delivery-fee"], span, div')?.textContent || '';
-        const deliveryFee = extractNumber(feeText);
-        const ratingText = card.querySelector('[data-test*="rating"], span, div')?.textContent || '';
-        const rating = extractNumber(ratingText);
-        const img = card.querySelector('img')?.currentSrc || card.querySelector('img')?.src || null;
-        const href = anchor?.href || null;
-        return { name, price, etaMinutes, deliveryFee, rating, img, href };
-      }).filter(Boolean) };
+    // Fallback: divs with store card data, or any card-like container
+    cards = Array.from(document.querySelectorAll(
+      'div[data-anchor-id*="StoreCard"], div[data-test*="storeCard"], div:has(a[href*="/store/"])'
+    ));
+    if (!cards.length) {
+      // Log a sample of the DOM for debugging
+      console.warn('[DoorDash Deal Finder] No restaurant cards found. Sample DOM:', document.body.innerHTML.slice(0, 1000));
+      return { error: 'No restaurant cards found. Try scrolling or updating selectors.' };
     }
-    return { error: 'No restaurant cards found. Try scrolling or updating selectors.' };
+  }
+
+  // Helper to get text from multiple possible selectors
+  function getText(card, selectors) {
+    for (const sel of selectors) {
+      const el = card.querySelector(sel);
+      if (el && el.textContent) return el.textContent.trim();
+    }
+    return '';
   }
 
   const results = cards.map(card => {
     // Name
-    const name = card.querySelector('h3, h2, [data-test="store-name"]')
-      ?.textContent?.trim() || null;
+    const name = getText(card, ['h3', 'h2', '[data-test="store-name"]', '[aria-label]']);
+    if (!name) return null;
 
-    if (!name) return null; // skip junk links
-
-    // Price (DoorDash doesn’t always show upfront)
-    const priceText = card.querySelector('[data-test*="price"], span, div')
-      ?.textContent || '';
+    // Price
+    const priceText = getText(card, ['[data-test*="price"]', '.price', 'span', 'div']);
     const price = extractNumber(priceText);
 
     // ETA
-    const etaText = card.querySelector('[data-test*="delivery-time"], span, div')
-      ?.textContent || '';
+    const etaText = getText(card, ['[data-test*="delivery-time"]', '.delivery-time', 'span', 'div']);
     const etaMinutes = extractNumber(etaText);
 
     // Delivery fee
-    const feeText = card.querySelector('[data-test*="delivery-fee"], span, div')
-      ?.textContent || '';
+    const feeText = getText(card, ['[data-test*="delivery-fee"]', '.delivery-fee', 'span', 'div']);
     const deliveryFee = extractNumber(feeText);
 
     // Rating
-    const ratingText = card.querySelector('[data-test*="rating"], span, div')
-      ?.textContent || '';
+    const ratingText = getText(card, ['[data-test*="rating"]', '.star-rating', 'span', 'div']);
     const rating = extractNumber(ratingText);
 
     // Image
-    const img = card.querySelector('img')?.currentSrc ||
-                card.querySelector('img')?.src || null;
+    const img = card.querySelector('img')?.currentSrc || card.querySelector('img')?.src || null;
 
     // Href
-    const href = card.href || null;
+    let href = card.href || null;
+    if (!href) {
+      // Try to find anchor inside card
+      const anchor = card.querySelector('a[href*="/store/"]');
+      if (anchor) href = anchor.href;
+    }
 
     return { name, price, etaMinutes, deliveryFee, rating, img, href };
   }).filter(Boolean);
