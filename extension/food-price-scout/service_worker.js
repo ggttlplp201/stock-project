@@ -1,16 +1,16 @@
-// service_worker.js
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === 'SCAN_PAGE') {
-    chrome.tabs.query({active: true, currentWindow: true}, tabs => {
-      if (tabs[0]?.id) {
-        chrome.scripting.executeScript({
-          target: {tabId: tabs[0].id},
-          files: ['content/content.js']
-        }, () => {
-          chrome.tabs.sendMessage(tabs[0].id, {type: 'EXTRACT_ITEMS'}, sendResponse);
-        });
+  if (msg?.type === 'SCAN_PAGE') {
+    (async () => {
+      try {
+        const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+        if (!tab?.id) return sendResponse({ok:false, error:'No active tab'});
+        const data = await chrome.tabs.sendMessage(tab.id, {type:'EXTRACT_ITEMS'});
+        sendResponse({ok:true, data});
+      } catch (e) {
+        const err = chrome.runtime.lastError?.message || String(e);
+        sendResponse({ok:false, error: err});
       }
-    });
-    return true; // async response
+    })();
+    return true; // keep channel open for async sendResponse
   }
 });
