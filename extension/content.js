@@ -1,155 +1,144 @@
-// content.js — resilient scraper for DoorDash listing/search pages
+// content.js — scrape DoorDash list pages; return: name, displayName, etaMinutes, deliveryFee, rating, ratingCount, href
 
 (() => {
-  // ---------- helpers ----------
   const $$ = (root, sel) => Array.from(root.querySelectorAll(sel));
-
   const isVisible = (el) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     return r.width > 100 && r.height > 60 && cs.display !== 'none' && cs.visibility !== 'hidden';
   };
 
-  // Accept $ or CA$ (or other 2–3 letter codes) and "Free"
+  // $ or CA$; also accept "Free"
   const parseMoney = (txt) => {
     if (!txt) return null;
     const s = String(txt).replace(/\u00A0/g, ' ').trim();
     if (/free/i.test(s)) return 0;
-    // matches "$9.99", "CA$ 9.99", "CA$9.99"
     const m = s.match(/(?:[A-Z]{1,3}\s*\$|\$)?\s*([0-9]+(?:\.[0-9]{1,2})?)/);
     return m ? Number(m[1]) : null;
   };
-
   const parseMinutes = (txt) => {
     if (!txt) return null;
     const m = String(txt).match(/(\d{1,3})(?:\s*[–-]\s*\d{1,3})?\s*m/i);
-    return m ? Number(m[1]) : null; // use lower bound
+    return m ? Number(m[1]) : null;
   };
-
   const parseRating = (txt) => {
     if (!txt) return null;
     const m = String(txt).match(/(\d\.\d)/);
     return m ? Number(m[1]) : null;
   };
+  const parseRatingCount = (txt) => {
+    if (!txt) return null;
+    // "(200+)" or "(1,200+)" or "200+"
+    const s = String(txt);
+    const m = s.match(/\(\s*([\d,]+(?:\+)?)/) || s.match(/\b([\d,]+(?:\+))\b/);
+    return m ? m[1] : null;
+  };
 
-  // --------- wait for UI to render ----------
-  const waitForListings = (timeout = 4500) =>
+  const waitForListings = (timeout = 5000) =>
     new Promise((resolve) => {
-      const tryNow = () => {
+      const grab = () => {
         const nodes = findCandidateCards();
         if (nodes.length) return resolve(nodes);
       };
-      tryNow();
-      const obs = new MutationObserver(tryNow);
+      grab();
+      const obs = new MutationObserver(grab);
       obs.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(() => {
-        obs.disconnect();
-        resolve(findCandidateCards()); // may be empty
-      }, timeout);
+      setTimeout(() => { obs.disconnect(); resolve(findCandidateCards()); }, timeout);
     });
 
-  // --------- find card containers (anchor or role=link) ----------
   function findCandidateCards() {
     const selectors = [
-      // Direct anchors
       'a[href*="/store/"]',
       'a[data-anchor-id*="StoreCard"]',
       'a[data-testid*="store-card"]',
-      // DoorDash often uses <div role="link"> for cards
       '[role="link"][data-testid*="store"]',
       '[role="link"][aria-label*="store"]',
-      // Generic card groupings with a link inside
       'article a[href*="/store/"]',
       'section a[href*="/store/"]'
     ];
-
-    // Collect both anchors and role="link" blocks
     const nodes = new Set();
     selectors.forEach(sel => $$(document, sel).forEach(n => nodes.add(n)));
-
-    // If we still didn't get anything, heuristically use headings on grid cards
     if (!nodes.size) {
-      $$(
-        document,
-        'h3, h2'
-      ).forEach(h => {
+      $$('h3, h2').forEach(h => {
         const card = h.closest('a, [role="link"], article, section, div');
         if (card && isVisible(card)) nodes.add(card);
       });
     }
-
     return Array.from(nodes).filter(isVisible);
   }
 
-  // --------- extract fields from a card ----------
+  const cleanNameText = (raw) => {
+    if (!raw) return '';
+    let t = raw.replace(/\s+/g, ' ').trim();
+    // cut at rating or meta delimiters
+    t = t.replace(/\s*\d\.\d.*$/,'');        // drop "4.2 ...", etc.
+    t = t.replace(/\s*·.*$/,'');             // drop after dot separators
+    t = t.replace(/\s*\(.*\)$/,'');          // trailing "(200+)"
+    t = t.replace(/\s*CA?\$\s*\d.+$/i,'');   // trailing price/fee
+    t = t.replace(/\s*\d+\s*m(in)?$/i,'');   // trailing minutes
+    return t.trim();
+  };
+
+  function extractName(card) {
+    const heading = card.querySelector('h3, h2, [data-test="store-name"], [data-testid*="store-name"]');
+    if (heading && heading.textContent.trim()) return { name: heading.textContent.trim(), displayName: heading.textContent.trim() };
+
+    let aria = card.getAttribute('aria-label');
+    if (aria) {
+      const displayName = cleanNameText(aria);
+      return { name: displayName, displayName };
+    }
+
+    // fallback: first line of text block
+    const pool = (card.textContent || '').trim();
+    const candidate = cleanNameText(pool.split('\n')[0] || pool);
+    return { name: candidate, displayName: candidate };
+  }
+
   function extractFromCard(card) {
-    // Name
-    const nameEl =
-      card.querySelector('h3, h2, [data-test="store-name"], [data-testid*="store-name"]') ||
-      card;
-    let name = (nameEl.textContent || '').trim();
-    // Sometimes anchor/role node has aria-label with name
-    if (!name && card.getAttribute('aria-label')) name = card.getAttribute('aria-label').trim();
-    if (!name || name.length < 2) return null;
+    const { name, displayName } = extractName(card);
+    if (!displayName) return null;
 
-    // Image
-    const imgEl = card.querySelector('img') || card.querySelector('picture img');
-    const img = imgEl ? (imgEl.currentSrc || imgEl.src || null) : null;
-
-    // Href (for role="link", look for inner anchor)
+    // href
     let href = card.href || card.getAttribute?.('href') || null;
     if (!href) {
       const a = card.querySelector('a[href*="/store/"]');
       if (a) href = a.href;
     }
 
-    // Build a small text pool from children to search for meta chips
     const pool = (card.textContent || '').replace(/\s+/g, ' ');
 
-    // ETA like "18–30 min" or "32 min"
+    // ETA
     const etaNode =
       card.querySelector('[data-testid*="delivery-time"], [data-test*="delivery-time"], [aria-label*="min"]') ||
       Array.from(card.querySelectorAll('span,div')).find(x => /\d+\s*(?:–|-)?\s*\d*\s*m/i.test(x.textContent));
     const etaMinutes = parseMinutes(etaNode?.textContent || pool);
 
-    // Delivery fee: prefer text near "delivery"
+    // Delivery fee
     let feeNode =
       card.querySelector('[data-testid*="delivery-fee"], [data-test*="delivery-fee"], [aria-label*="delivery"]') ||
-      Array.from(card.querySelectorAll('span,div')).find(x => /delivery\s*fee|delivery/i.test(x.textContent) && /(?:\$|[A-Z]{1,3}\s*\$)\s*\d/.test(x.textContent));
+      Array.from(card.querySelectorAll('span,div')).find(x => /delivery\s*fee|delivery/i.test(x.textContent) && /(?:\$|[A-Z]{1,3}\s*\$)|free/i.test(x.textContent));
     let deliveryFee = parseMoney(feeNode?.textContent || '');
     if (deliveryFee === null) {
-      // Some cards say "CA$0 delivery fee over CA$15" -> parse first money in that phrase
       const feePhrase = Array.from(card.querySelectorAll('span,div')).map(n => n.textContent).find(t => /delivery/i.test(t));
       if (feePhrase) deliveryFee = parseMoney(feePhrase);
     }
 
-    // Price (many listing cards won't have one; leave null)
-    const priceNode =
-      card.querySelector('[data-test*="price"], [data-testid*="price"], [aria-label*="price"]') ||
-      Array.from(card.querySelectorAll('span,div')).find(x => /\b(?:From|Starting at)\b.*\$/i.test(x.textContent)) ||
-      Array.from(card.querySelectorAll('span,div')).find(x => /^\s*(?:CA\$|\$)\s*\d/.test(x.textContent));
-    const price = parseMoney(priceNode?.textContent || '');
+    // Rating + rating count
+    const rating = parseRating(pool);
+    const ratingCount = parseRatingCount(pool);
 
-    // Rating
-    const ratingNode =
-      card.querySelector('[data-test*="rating"], [data-testid*="rating"], [aria-label*="rating"]') ||
-      Array.from(card.querySelectorAll('span,div')).find(x => /\d\.\d/.test(x.textContent) && /★|⭐|rating/i.test((x.closest('*')?.textContent || '')));
-    const rating = parseRating(ratingNode?.textContent || pool);
-
-    return { name, price, etaMinutes, deliveryFee, rating, img, href };
+    return { name, displayName, etaMinutes, deliveryFee, rating, ratingCount, href };
   }
 
   async function scan({ debug = false } = {}) {
     const cards = await waitForListings(5000);
     if (debug) console.log('[DDF] candidate nodes:', cards.length);
 
-    let rows = cards
-      .map(extractFromCard)
-      .filter(Boolean);
+    let rows = cards.map(extractFromCard).filter(Boolean);
 
-    // Deduplicate: href first, then name
-    const seenHref = new Set();
-    const seenName = new Set();
+    // dedupe
+    const seenHref = new Set(); const seenName = new Set();
     rows = rows.filter(r => {
       if (r.href && seenHref.has(r.href)) return false;
       if (r.href) seenHref.add(r.href);
@@ -162,7 +151,6 @@
     return rows;
   }
 
-  // ---------- message bridge ----------
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'DD_PING') { sendResponse({ ok: true }); return true; }
     if (msg?.type === 'DD_SCAN') {
