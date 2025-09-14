@@ -1,7 +1,9 @@
 // content.js
-import * as doordash from './adapters/doordash.js';
-import * as ubereats from './adapters/ubereats.js';
-import * as grubhub from './adapters/grubhub.js';
+// helpers inlined
+const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+const selectText = (el, sel) => (sel ? el.querySelector(sel) : el)?.textContent?.trim() ?? '';
+const toNumber = (txt) => { if(!txt) return NaN; const n = txt.replace(/[^0-9.,]/g,'').replace(',', '.'); return parseFloat(n); };
+const toMinutes = (txt) => { if(!txt) return NaN; const h=/([0-9]+)\s*hr/.exec(txt)?.[1]; const m=/([0-9]+)\s*min/.exec(txt)?.[1]; if(h||m) return (parseInt(h||'0',10)*60)+parseInt(m||'0',10); const first=/([0-9]+)/.exec(txt)?.[1]; return first?parseInt(first,10):NaN; };
 
 const adapters = [doordash, ubereats, grubhub];
 
